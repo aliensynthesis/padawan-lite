@@ -1,0 +1,560 @@
+Padawan-Lite - Known deviations from ITU-T X.28 / X.3 and out-of-scope items
+=======================================================================
+
+Per CLAUDE.md compliance policy:
+- Spec adherence takes precedence over design optimisations.
+- Maximum X.28 compliance is the goal; every known deviation is recorded
+  here for follow-up.
+
+Entries are dated (YYYY-MM-DD) when added. Each entry cites the source
+file/clause and explains the chosen interpretation or omission.
+
+
+KNOWN DEVIATIONS
+----------------
+
+[2026-05-20] src/x3.c - Parameter 11 (binary speed) default value
+  X.28 Table 1 specifies "indicate speed of DTE" for both the simple and
+  transparent standard profiles without naming a fixed numeric value
+  (param 11 is read-only and reflects the actual DTE line speed).
+  Both profile defaults in PROFILE_SIMPLE and PROFILE_TRANSPARENT are set
+  to 14 (= 9600 bit/s per X.3 3.11) as a sensible async-terminal default.
+  A real implementation should set this at session start from the actual
+  detected DTE speed (via x3_set_speed). Marked VERIFY in source.
+
+[2026-05-20] src/x3.c - Parameter 6 (control of PAD service signals)
+  X.3 3.6 defines a low-nibble set {0,1,2,4,5} combined with a high-nibble
+  for extended dialogue mode (16,32,48,64) and a network-dependent range
+  8-15. The spec leaves "network-dependent" open. x3_validate accepts the
+  full 0..255 byte rather than enforcing only the listed combinations, to
+  avoid rejecting valid network-specific values. Marked VERIFY in source.
+
+
+OUT OF SCOPE FOR v1.0
+---------------------
+
+These are deferred deliberately and will be addressed in later phases.
+Each item names the spec clauses that govern it.
+
+[2026-05-20] X.25 virtual-call layer
+  CALL / CLR / RESET / INTERRUPT against a real X.25 stack are stubbed
+  in platform/linux/x25_stub.c. The stub logs to stderr and reports
+  success. Real X.25 (per Recommendation X.25) will replace the stub.
+
+[2026-05-20] Extended dialogue mode (X.28 clause 5) - partial
+  Command parsing and dispatch implemented for: BREAK (§5.1), ID /
+  IDOFF (§5.2), LANG / LANGUAGE (§5.3), HELP (§5.4). Extended keyword
+  aliases (Table 9/X.28: STATUS, CLEAR, INTERRUPT, PROFILE, PARAMETER,
+  READ, SETREAD, RREAD, RSETREAD, ICLEAR, CALL) are accepted in addition
+  to the standard short keywords. ID persists the supplied NUI in
+  pad_session_t.session_nui (§5.2) and IDOFF clears it; the value
+  flows through pad_set_auth_callback so the bridge's --auth gate
+  honours both per-call (selection-signal N facility) and session-level
+  identity. Remaining gaps:
+  - LANG does not actually switch param 6's high-nibble language setting
+    (response language is hard-coded English).
+  - The §3.5.15.1.1 structured NUI format (CCITT-specified character
+    set restrictions) is not enforced; whatever ID receives goes in.
+  - HELP service text now varies by subject (§5.5 + Table 10/X.28):
+    PAR, SET, READ, STAT, CLR, ICLR, INT, RESET, PROF, BREAK, ID,
+    IDOFF, LANG, RPAR, RSET, CALL, HELP, and a generic fallback for
+    unknown subjects. Subject matching is case-insensitive. The text
+    bodies are concise descriptions, not the verbose multi-paragraph
+    network-specific tutorials some PADs provide.
+  - Bare ID (no NUI argument, §5.2 paragraph) emits a "NUI?" prompt
+    and captures the next CR-terminated input as the session NUI.
+    Empty answer cancels the prompt without clearing the previous NUI.
+  - The MAP extended keywords (MODIFY, CHANGE, YES) are out of scope
+    along with the rest of X.28 clause 6.
+
+[2026-05-20] src/pad.c - param 21 (parity treatment) deferred
+  X.3 3.21 / X.28 2.1.2 define five parity modes (0/1/2/3/4) requiring
+  per-byte bit-7 masking, even-parity check, and even-parity
+  generation across every byte path in and out of the PAD. Padawan-Lite
+  runs over stdio (8-bit clean) where parity is meaningless, and the
+  parity-error PAD service signal format is "for further study"
+  (§3.5.26). Deferred until a real serial line driver lands.
+  param 21 is stored and validated; behavior is inert.
+
+[2026-05-21] src/pad.c - param 5 high-watermark threshold is hard-coded
+  X.3 3.5 ancillary device control is implemented as: emit X-OFF (DC3)
+  to DTE when the assembly buffer reaches 80% capacity (a simple
+  high-watermark), and X-ON (DC1) after the next flush. The spec
+  leaves the throttling policy network-dependent; v1.0 uses a fixed
+  threshold and rarely triggers in normal use because forwarding-char
+  flushes keep the buffer well below the mark.
+
+[2026-05-21] src/pad.c - param 22 page-wait drops remaining bytes
+  When the linefeed threshold is hit inside a single to_dte call, the
+  PAD enters page wait, emits the PAGE service signal (§3.5.27), and
+  returns - any bytes that were still queued for emission in the same
+  call are dropped rather than held until X-ON resumes transmission.
+  Bridge backs into the same boundary if its TCP stream is faster than
+  the user's reading pace.
+
+[2026-05-21] src/pad.c - param 22 LF-count reset rules incomplete
+  X.28 §4.18.3 enumerates several conditions that reset the page-wait
+  linefeed count (data forwarding conditions, echoed LF in user input,
+  line-deleted PAD service signal with associated linefeeds, leaving
+  PAD command state with associated linefeeds). v1.0 resets only on
+  CR emission and on X-ON cancel.
+
+[2026-05-20] src/pad.c - param 13 all three bits implemented
+  X.3 3.13 / X.28 4.15 defines three bits for param 13:
+    bit 0 (value 1): insert LF after every CR in the data stream TO
+                     the DTE (output direction) - IMPLEMENTED in
+                     pad_input_remote.
+    bit 1 (value 2): insert LF after every CR in the data stream FROM
+                     the DTE (input direction) - IMPLEMENTED in
+                     feed_data_byte. LF is appended to the assembly
+                     buffer immediately after the CR so they flush as
+                     a pair when CR triggers forwarding; under param
+                     15 = 1, a cdel would remove the LF first then
+                     the CR (consistent with the spec note that the
+                     inserted LF is editable).
+    bit 2 (value 4): insert LF after the echo of CR (param 2 must be
+                     enabled) - IMPLEMENTED in echo_byte.
+
+[2026-05-20] src/pad.c - BREAK command does not gate post-dispatch state
+  X.28 §5.1 says that if param 7 has bit 3 set, the BREAK PAD command
+  should leave the interface in WAITING_FOR_CMD even after dispatch.
+  Padawan-Lite's BREAK command explicitly suppresses the in-flight escape
+  (per the §5.1 NOTE) but the post-dispatch transition still returns to
+  DATA_TRANSFER when the call is connected. Net effect matches the
+  NOTE ("Escape from data transfer state is not possible by using this
+  command") but the subtler "stay-in-waiting-for-command" semantic for
+  bit-3-set + connected callers is not implemented.
+
+[2026-05-20] Multi-Aspect PAD / X.8 (X.28 clause 6)
+  MAP command/service signals, aspect transitions, and MAP status blocks
+  are not implemented.
+
+[2026-05-20] Annex C - non-English service signal text
+  Spanish and French extended-dialogue-mode text from X.28 Annex C is
+  not implemented. All formatted service signals use English keywords.
+
+[2026-05-21] Selection PAD command signal structured parse (X.28 3.5.15)
+  x28_parse_command now parses the facility request block (§3.5.15.1)
+  into a structured x28_facility_t array: facility code letter + arg
+  string, separated by ',' and terminated by '-'. The address follows
+  the dash and is captured into cmd.address as before.
+  Still deferred:
+    - abbreviated address detection (§3.5.15.2.2 - leading '.')
+    - call user data field parsing (§3.5.15.3 - P/D/H prefix + payload)
+    - per-facility argument syntax checks (e.g. ensuring CUG index is
+      1-2 decimal digits, NUI string excludes the spec-forbidden chars)
+  Facility letters from Table 4/X.28 (B,C,D,E,F,G,M,N,O,P,Q,R,S,T,U,W)
+  are recognised; arguments are captured up to ',' or '-' verbatim.
+
+[2026-05-20] PAD state machine (X.28 clauses 3, 4)
+  The state diagram in Figures 1/X.28 and 2/X.28 (states: active link,
+  service request, DTE waiting, service ready, PAD waiting, PAD command,
+  connection in progress, service signals, data transfer, waiting for
+  command, PAD aspect transition) is not yet implemented. Phase 3.
+
+[2026-05-20] Editing functions in PAD command state (X.28 3.6)
+  Character delete (param 16), line delete (param 17), line display
+  (param 18) are not yet applied to the PAD command editing buffer.
+  Belongs with the state machine in Phase 3.
+
+[2026-05-20] Initialization / auto-baud (X.28 clause 2.2)
+  Service request signal recognition, speed/code/parity auto-detection,
+  initial standard profile selection from the service request signal,
+  and the V-/X-series access-information-path procedures (clause 1) are
+  not implemented.
+
+[2026-05-23] PAD parameters 23-30 (X.3 extended set) - storage only
+  Param 23 (size of input field), 24 (end-of-frame), 25 (extended data
+  forwarding), 26 (display interrupt), 27 (display interrupt confirm),
+  28 (diacritic coding), 29 (extended echo mask), 30 (default packet
+  size) are now stored and range-checked by x3_params_t / x3_validate
+  (X3_PAR_MAX = 30). Behaviour is inert -- a Set/Read addressing any
+  of refs 23-30 round-trips correctly but the PAD does not yet act on
+  the value. The reason to store them now is to let a future X.29
+  PAD-message dispatcher Set/Read across the full range without
+  table-size special cases. Specifically still NOT implemented:
+    - param 25 (extended forwarding signals): echo logic still
+      consults only param 3 (see the v1.0 entry below).
+    - params 26/27 (display interrupt): no DTE-visible display.
+    - param 29 (extended echo mask): no influence on echoed bytes.
+    - param 30 (default packet size): no effect on the bridge or any
+      future X.25 layer.
+
+[2026-05-20] OpenVMS platform
+  Per the user's scoping decision, OpenVMS support (DEC C, MMS build,
+  UCX sockets, RMS, condition handling) is deferred. Only the Linux
+  branch of the platform abstraction is exercised in v1.0.
+
+[2026-05-21] src/pad.c - CONN_IN_PROGRESS buffers DTE input (extension)
+  X.28 §3.2.1.5 specifies that during call setup the PAD honours only
+  the PAD recall character from the DTE; all other bytes are dropped.
+  The spec presumes 1985-era X.25 call setup that could take seconds,
+  during which user keystrokes might no longer reflect intent by the
+  time the call connects. On modern TCP-backed transports setup is
+  sub-second, so dropping is overly defensive and surprises users who
+  type a username at the prompt before the connection signal arrives.
+  Padawan-Lite buffers up to PAD_PENDING_SIZE = 256 DTE bytes received in
+  CONN_IN_PROGRESS and replays them through the normal data-transfer
+  feeder on entry to DATA_TRANSFER via pad_call_connected. The buffer
+  is dropped on PAD recall (§3.2.1.5 escape) and on pad_remote_cleared
+  failure paths so stale keystrokes don't leak into a fresh call.
+
+[2026-05-21] bridge/x25_telnet_bridge.c - half-close before close()
+  slot_close calls shutdown(fd, SHUT_WR) immediately before close(),
+  so the peer sees a clean TCP FIN before the socket is destroyed.
+  Helps line-oriented hosts (notably SIMH's DZ device behind VMS)
+  detect the hangup promptly instead of holding the DZ line in a
+  half-connected state until VMS's idle timer expires. For a fully
+  clean VMS hangup the SIMH/VAX side still needs
+  "set dz0 modem" on SIMH and
+  "SET TERMINAL/PERMANENT/MODEM/HANGUP/NODISCONNECT TTA0:" on VMS;
+  Padawan-Lite can't fully remediate from the bridge side.
+
+[2026-05-21] src/pad.c - SELECTION fast-path skips CONN_IN_PROGRESS on sync OK
+  The async path (X25_IN_PROGRESS -> CONN_IN_PROGRESS -> pad_call_connected
+  -> DATA_TRANSFER) is now plumbed. When x25_call returns X25_OK
+  synchronously, dispatch still skips CONN_IN_PROGRESS straight to
+  DATA_TRANSFER. The stub keeps returning OK by default so existing
+  tests / synchronous backends are unchanged. A real X.25 layer should
+  return X25_IN_PROGRESS so the state machine traverses CONN_IN_PROGRESS.
+
+[2026-05-21] bridge/x25_telnet_bridge.c - TCP has no X.25 RESET analog
+  x25_reset() in the telnet bridge is a no-op (logs and returns OK).
+  TCP has no in-band reset primitive comparable to X.25's RESET packet.
+  An aggressive alternative would close+reconnect, but that loses
+  application-level state on the peer side. v1.0 treats reset as a
+  silent no-op when bridging.
+
+[2026-05-21] bridge/x25_telnet_bridge.c - INT mapped to Telnet IAC IP
+  x25_interrupt() sends Telnet IAC IP (FF F4 - Interrupt Process)
+  instead of any X.25-equivalent signaling. The 1-byte X.25 INT
+  user-data field is discarded; Telnet IP has no user-data payload.
+
+[2026-05-21] bridge/x25_telnet_bridge.c - address map capped at 32 entries
+  Addresses can be mapped to arbitrary host:port pairs via a config
+  file loaded with --config (bridge/main.c -c FILE). File format:
+  one line per entry, "<address> <host> <port>", comments start with
+  '#'. Unmapped addresses fall back to localhost:<address-as-port>.
+  v1.0 caps the table at 32 entries; addresses up to 15 chars; hosts
+  up to 63 chars. Host resolution uses getaddrinfo (IPv4 only).
+
+[2026-05-21] bridge/x25_telnet_bridge.c - Telnet IAC handling is minimal
+  Initial negotiation sent on connect: DO SGA / WILL SGA / DO BINARY /
+  WILL BINARY / DONT ECHO / WONT ECHO. Server-initiated negotiation
+  handled: WILL/DO for BINARY or SGA -> accept; DO for TERMINAL-TYPE
+  (RFC 1091) -> accept and respond to SB TTYPE SEND with the literal
+  IS "PADAWAN" payload; everything else refused (DONT/WONT). Inbound
+  IAC sequences filtered before being pushed to pad_input_remote;
+  IAC IAC correctly decoded to a literal 0xFF data byte. Outbound
+  IAC escaping: a literal 0xFF in user data is doubled to IAC IAC
+  per RFC 854.
+  NAWS (RFC 1073 / option 31): accept DO NAWS, respond WILL NAWS and
+  immediately send SB NAWS with the current size. Default size 80x24;
+  driver pushes real size via x25_bridge_set_window_size on startup
+  (TIOCGWINSZ) and on SIGWINCH (the handler sets a sig_atomic_t flag
+  consumed in the main loop). 0xFF in dimension bytes is escaped per
+  RFC 854 inside the SB.
+  TTYPE response rotates per RFC 1091: first SB SEND -> "PADAWAN",
+  second -> "UNKNOWN", subsequent -> repeats "UNKNOWN" to signal that
+  the list is exhausted.
+  Not implemented: SB contents for options other than TERMINAL-TYPE
+  and NAWS (bytes silently discarded), LINEMODE, ENVIRON, NEW-ENVIRON,
+  AUTHENTICATION.
+
+[2026-05-21] bridge/x25_telnet_bridge.c - per-call slot table
+  Bridge state is per-call in g_calls[BRIDGE_MAX_CALLS = 16] keyed by
+  x25_call_t.call_id which encodes (generation << 8 | slot_index).
+  Per-call state: fd, connecting flag, bound pad_session_t, generation
+  counter, IAC state machine, NAWS state, TTYPE rotation index.
+  Generation increments on alloc; call_slot rejects mismatched
+  generation so stale x25_call_t handles return NULL safely. Address
+  map and default window size remain process-global.
+
+[2026-05-21] bridge/user_telnet.c - user-side Telnet IAC handling
+  In --listen mode pad-bridge acts as a telnet server toward the user
+  client. Initial negotiation sent on accept: WILL ECHO / WILL SGA /
+  DO SGA / WILL BINARY / DO BINARY / DO NAWS. Server policy on
+  user-initiated negotiations: accept user WILL BINARY/SGA/NAWS
+  (-> DO), accept user DO ECHO/BINARY/SGA (-> WILL), refuse the rest
+  (DONT/WONT). Inbound IAC sequences filtered before reaching the PAD
+  command parser; IAC IAC decoded to literal 0xFF. SB NAWS from the
+  user is captured (has_naws / naws_width / naws_height in
+  user_telnet_t).
+  NAWS from the user is forwarded to that user's bridge call via
+  x25_bridge_set_window_size_for_session (per-session API added in
+  v1.0), so a user's window-size update doesn't clobber other users'
+  sizes. Outbound IAC escape (PAD-to-user direction): cb_dte routes
+  through user_telnet_write for TCP sessions, which doubles literal
+  0xFF bytes per RFC 854; stdin sessions write raw.
+
+[2026-05-21] bridge/main.c - NUI authentication
+  --auth <file> loads an allow-list of NUIs (one per line, '#' comments)
+  and installs a pad_set_auth_callback gate on every session. The gate
+  fires during SELECTION dispatch with both per-call (X.28 §3.5.15.1.1
+  selection-signal 'N' facility) and session-level (§5.2 ID command)
+  NUI; either matching the allow-list permits the call. Per-call
+  takes precedence when both are present. No matching NUI -> the PAD
+  emits "CLR NA C:0 D:0" (Table 6/X.28 access barred) and stays in
+  PAD_WAITING. Calls without --auth retain the prior open-access
+  behaviour. The auth callback itself is a Padawan-Lite extension; X.28
+  leaves authentication to the X.25 network layer.
+
+[2026-05-21] bridge/main.c - --baud throttle is a presentation layer
+  -b N / --baud N (bits/sec, 0 = off) gates output in both directions
+  per session via a token bucket in the driver: cb_dte / cb_remote
+  enqueue into a 4 KB ring buffer instead of writing immediately,
+  and the 50 ms main-loop tick refills budget at the configured rate
+  (assuming 10 bits per byte: 1 start + 8 data + 1 stop) and drains
+  the queues. Burst cap is 250 ms of credit.
+  Deviations from physical-line emulation:
+  - Throttle lives in the bridge driver, not in the PAD library.
+    X.3 has no runtime rate-control parameter (param 11 "indicated
+    DTE speed" is read-only and intended only for the auto-baud
+    handshake), so spec-side this is a Padawan-Lite extension and the
+    PAD core's X.3 mechanisms (assembly buffer, idle timer, param 5
+    high-water X-OFF) still run on logical bytes, not paced bytes.
+  - Both input directions (user -> PAD, host -> PAD) are NOT
+    throttled; only PAD -> user and PAD -> host outputs are paced.
+    User typing is naturally slow and host input is gated by the
+    PAD's normal buffering, so the net effect is still "feels like
+    N baud" without needing explicit input throttles.
+  - IAC negotiation sent by user_telnet_send_initial bypasses the
+    throttle (it predates session-level pacing). At 300 baud this
+    shows up as an immediate ~18-byte burst before the first PAD
+    output appears; cosmetic, since the user's telnet client absorbs
+    those bytes invisibly.
+  - Tick granularity is fixed at 50 ms; at >= 9600 bps output appears
+    as 20 Hz bursts rather than a smooth stream. Target use case is
+    vintage rates (300 / 1200 / 2400) where the granularity is below
+    one character time.
+  - Ring buffer overflow drops trailing bytes (4 KB / 30 cps
+    ~= 2 minutes of unread output before loss). In practice the
+    main loop suppresses POLLIN on the upstream fd (bridge fd for
+    dte_q, user fd for remote_q) once the queue crosses the 2 KB
+    high-water mark, so the kernel TCP socket buffer absorbs the
+    slack and the peer backpressures via TCP -- overflow should not
+    occur under normal traffic.
+
+[2026-05-22] bridge/main.c - inbound traffic logging
+  --trace and --trace-prefix <p> enable per-session logging of inbound
+  traffic only: bytes the PAD receives from the client (DTE side) and
+  bytes the PAD receives from the service (remote/bridge side).
+  Outbound directions (PAD -> DTE, PAD -> remote) are intentionally not
+  logged. Each session opens one file named
+  "<prefix>-<unix-ts>-<seq>.log" (default prefix padawan-lite-trace).
+  Implementation: pad_set_trace_callback installs a pad_trace_fn that
+  fires at the top of pad_input_dte and pad_input_remote, so the
+  callback sees what the PAD itself sees (post-IAC-filter on both
+  sides). The driver's callback buffers bytes for the current
+  direction; a direction transition (CLIENT -> SERVICE or vice versa)
+  flushes the buffer as a single hexdump -C entry with a timestamp
+  header. Buffer is 4 KB per session; if it fills mid-direction (no
+  transition in sight), it's flushed as an interim entry and
+  accumulation continues. Session close flushes any pending bytes.
+  Padawan-Lite extension; no X.28 spec text governs.
+  --trace-line-mode flips the CLIENT side from per-direction-transition
+  to CR-delimited line accumulation: bytes from the user gather until
+  CR is seen, at which point the SERVICE accumulator (prompt + any
+  echoes) is flushed first followed by the CLIENT line. Buffer
+  overflow emits an interim entry in the same direction; session
+  close flushes both pending buffers. Useful for interactive Telnet
+  sessions where service-side echoing produces a per-byte alternating
+  trace in the default mode -- line mode shows each logical command
+  line as one CLIENT entry.
+
+[2026-05-21] bridge/main.c - --telnet-defaults overrides simple profile
+  -t / --telnet-defaults applies SET 2:0, 3:0, 4:1 immediately after
+  pad_init / pad_init_handshake on every session (param 2 echo off,
+  param 3 no forwarding char, param 4 idle = 50 ms). This deviates
+  from the simple profile defaults (2:1, 3:126, 4:0) in X.28 Table 1
+  / X.3 Table 1, chosen to give a char-at-a-time experience for
+  interactive Telnet users who already have host-side echo (avoiding
+  the double-echo and PARTESCAPE complaints that the spec defaults
+  produce when bridging into a stream-oriented host like VMS).
+  The flag is opt-in; without it Padawan-Lite uses the spec defaults.
+
+[2026-05-21] src/pad.c - COM signal lacks optional address/facility blocks
+  X.28 §3.5.21 connected PAD service signal is now emitted on successful
+  call setup (both sync and async paths). v1.0 emits the minimal form:
+  leading effector, "COM", trailing effector. The optional called-DTE
+  address, facility, and call-user-data blocks are not included; they
+  arrive with structured selection-signal facility-block work.
+
+[2026-05-20] src/pad.c - CLR confirmation lacks optional facility block
+  X.28 3.5.9 defines the clear confirmation as
+  "CLR CONF <text> <effector> <optional facility block>". Padawan-Lite now
+  emits the mandatory "CLR CONF" + format effector; the optional
+  facility block (charging information) is not produced.
+
+[2026-05-20] src/pad.c - echo value 2 honours param 3 only, not param 25
+  X.3 3.2 value 2 ("echo all except the data forwarding sequence")
+  refers to the data forwarding sequence selected by param 3 or by
+  param 25 (extended data forwarding signals, X.3 3.25). v1.0
+  considers only param 3; param 25 is out of v1.0 scope and the echo
+  exception logic does not consult it.
+
+[2026-05-20] src/pad.c - break bit 2 (indication of break) not delivered
+  X.3 3.7 / X.28 4.11: when param 7 bit 2 (value 4) is set, the PAD
+  shall send an 'indication of break' PAD message to the remote DTE.
+  This requires the X.29 PAD-message layer, which is out of v1.0
+  scope. pad_break currently ignores bit 2; the other four basic
+  actions (interrupt, reset, escape, discard) are implemented.
+
+[2026-05-20] src/pad.c - display interrupt not implemented
+  X.3 3.26 / 3.27 (params 26, 27) for display interrupt and its
+  confirmation prompt are outside the v1.0 parameter set (refs 1-22)
+  and not implemented.
+
+[2026-05-21] src/pad.c - remote queue overflow drops new bytes
+  Bytes arriving from the remote DTE while the PAD is not in
+  DATA_TRANSFER are now held in pad_session_t.remote_q
+  (PAD_REMOTE_Q_SIZE = 1024 bytes) and drained on entry to
+  DATA_TRANSFER. Overflow policy: new incoming bytes beyond the queue
+  capacity are silently dropped. A proper implementation would assert
+  flow control upstream (e.g. X.25 RNR / TCP zero-window) - but that
+  requires a signaling path back to the X.25 / bridge layer that
+  doesn't exist yet. The queue is cleared by pad_remote_cleared so
+  stale data does not leak into a future call on the same session.
+
+[2026-05-20] platform/linux/main.c - byte intercepts only in interactive tty
+  In raw tty mode (ICANON cleared) the kernel does not translate Ctrl-D
+  (0x04 / EOT) into EOF; it is delivered as a normal byte. The driver
+  intercepts 0x04 (exit) and 0x02 (break) ONLY when stdin is a tty and
+  raw mode was entered successfully (termios_saved == 1).
+  Side-effect (interactive only): you cannot type a literal EOT or STX
+  at the prompt.
+  Piped / non-tty stdin passes every byte through transparently and
+  exits only on real EOF; binary data carrying 0x04 or 0x02 is preserved
+  for file transfers and the transparent (X.3 profile 91) use case.
+
+[2026-05-20] platform/linux/main.c - break delivered via Ctrl-B (tty only)
+  Real serial-line BREAK detection (via the kernel's BRKINT, or
+  TIOCGICOUNT on real ttys) is not implemented. In interactive tty
+  mode the Linux driver intercepts Ctrl-B (0x02) at the byte stream
+  and calls pad_break. In piped / non-tty mode 0x02 is passed through
+  as a normal byte (no break delivered via stdin in that mode).
+
+[2026-05-20] platform/linux/main.c - X.25 stub remains the data path
+  The driver passes the same stub from platform/linux/x25_stub.c that
+  the tests use; data forwarded by the PAD is logged to stderr via
+  the emit_remote callback but never reaches a real X.25 stack. When
+  the X.25 layer lands, the driver should wire emit_remote into
+  x25_send (or remove the callback in favour of direct x25_send calls
+  inside pad.c).
+
+[2026-05-20] src/pad.c - states 3B, 5A, 8 not separately modelled
+  pad_state_t now models states 1, 2, 3, 4, 5, 6, 7, 9, 10. State 3B
+  (DTE waiting after PAD command) is functionally equivalent to 3A
+  per X.28 and is folded into PAD_STATE_DTE_WAITING / handled via the
+  command-state post-dispatch transition. State 5A (PAD aspect
+  transition for MAP) and the transient state 8 (service signals)
+  are out of scope for v1.0.
+
+[2026-05-20] src/pad.c - service request signal not auto-detected
+  X.28 §2.2.2 envisages the PAD using the byte timing and value of the
+  service request signal to detect line speed, code (IA5 vs others),
+  and parity, and to select the initial profile. Padawan-Lite v1.0 is on
+  a logical line (stdio); feed_service_request_byte simply consumes
+  bytes until CR (the §3.5.16 format is "for further study"). param 11
+  (binary speed) is left at its profile default rather than being
+  set from detection.
+
+[2026-05-20] src/pad.c - §2.2.5 fault timeout not implemented
+  If no service request signal arrives within Y seconds the PAD shall
+  perform PAD clearing by disconnecting the access information path.
+  Y is "for further study". v1.0 has no timer for this; the session
+  remains in ACTIVE_LINK indefinitely until a byte arrives.
+
+[2026-05-23] src/pad.c - pad_remote_interrupted emits BEL to DTE
+  X.28 §3.5 leaves the PAD's response to a remote-originated interrupt
+  "for further study". X.29 §3 allows the PAD to indicate the event
+  to the DTE and/or discard buffered output. v1.0 takes the indicate
+  path: when the session is in DATA_TRANSFER and service signals are
+  enabled (param 6 != 0), pad_remote_interrupted emits a single BEL
+  (0x07) to the DTE. The 1-byte user_data field of the X.25 interrupt
+  packet is still not surfaced anywhere; buffered output is NOT
+  discarded -- that policy decision belongs with the future X.29
+  layer.
+
+[2026-05-22] src/pad.c - pad_remote_cleared carries the X.25 cause code
+  pad_remote_cleared now takes a cause_code byte (Recommendation X.25
+  §5.6.6 numeric clear-cause) alongside the pad_clear_cause_t enum and
+  the diagnostic, so the CLR indication renders informatively as
+  "CLR <text> C:<code> D:<diag>". The bridge maps common TCP connect
+  errors to X.25 cause codes:
+    ECONNREFUSED -> 13 (Not Obtainable) + PAD_CLR_NUMBER_NOT_ASSIGNED
+    EHOSTUNREACH / ENETUNREACH / EHOSTDOWN
+                 ->  9 (Out of Order) + PAD_CLR_NUMBER_OUT_OF_ORDER
+    ETIMEDOUT    ->  5 (Network Congestion) + PAD_CLR_NETWORK_PROBLEM
+    other errno  ->  5 (Network Congestion) + PAD_CLR_NETWORK_PROBLEM
+  Diagnostic byte carries the raw POSIX errno. Remote-initiated FIN
+  uses code 0 (DTE Originated). Tests and external x25.h
+  implementations passing 0 retain the original abbreviated-text-only
+  output.
+
+[2026-05-23] include/x25.h - Q-bit plumbed through
+  x25_send/x25_recv carry an explicit qbit parameter; pad_input_remote
+  accepts the same. qbit=0 = user data (current behaviour), qbit=1 =
+  X.29 PAD message (qualified data packet). The Telnet bridge has no
+  qualified-data analogue: x25_send with qbit=1 returns the new
+  X25_ERR_NOT_SUPPORTED, and the bridge never delivers qbit=1 on
+  recv. The X.29 encode/decode + dispatcher (see entry below) is
+  active when qbit=1 bytes do arrive (e.g. via the platform stub or
+  a future real X.25 transport).
+
+[2026-05-23] X.29 PAD-message encode/decode + dispatcher
+  include/x29.h + src/x29_messages.c implement the X.29 (12/97)
+  PAD-message wire format: Parameter Indication (0x00), Invitation to
+  Clear (0x01), Set (0x02), Indication of Break (0x03), Read (0x04),
+  Error (0x05), Set-and-Read (0x06) per Table 1/X.29. Reselection
+  (0x07) is decoded but not dispatched (the §4.5.7 NLI semantics
+  are out of v1.0 scope and would need real X.25 facilities).
+  Wire-format coverage:
+    - encode + decode tested round-trip in tests/test_x29_messages.c
+      (73 assertions covering each type, both forms of Indication of
+      Break, error rejection of malformed bodies, overflow).
+    - Indication of Break supports the pair form {0x08, value} for
+      sync'ing param 8 with the peer; bare-type form also accepted.
+  Dispatch (src/pad.c::dispatch_x29_message):
+    - PI surfaces values to the local DTE via x28_format_par.
+    - Invite Clear -> pad_remote_cleared(PAD_CLR_REMOTE_REQUEST).
+    - Set -> x3_set for each pair (silent skip on validation failure;
+      stricter would respond with Error).
+    - Read -> reply with PI of current values.
+    - Set-and-Read -> apply Set, reply with PI.
+    - Break -> apply optional param 8 update + BEL to DTE.
+    - Error -> silently absorbed (debug hook is a future addition).
+    - Unknown type -> reply with Error (X29_ERR_UNRECOGNISED).
+  Outbound emission from X.28 commands:
+    - RPAR / RPAR? -> X.29 Read PAD message
+    - RSET         -> X.29 Set-and-Read (so user sees confirmed values)
+    - ICLR         -> X.29 Invitation to Clear
+    - BREAK with param 7 bit 2 set -> X.29 Indication of Break
+  In all cases the bytes go through x25_send(qbit=1); the Telnet
+  bridge returns X25_ERR_NOT_SUPPORTED and the send is silently
+  dropped. The PAD-library logic still runs correctly; a real X.25
+  transport will carry the messages end-to-end.
+
+[2026-05-21] src/x28_signals.c - selection-signal structured parsing
+  X.28 §3.5.15 / Table 4 define a structured facility request block
+  (NUI, CUG, CAE, ROA, reverse charging, fast select, called-DTE
+  reselection prevention, throughput class, packet/window negotiation,
+  charging info) that can precede the address in a selection PAD
+  command signal, and §3.5.15.3 defines a trailing call user data
+  field with D / P / H prefix. x28_parse_command now splits the
+  signal into:
+    - cmd.facilities[] (x28_facility_t = { code, arg_len, arg[] }),
+      driven by facility-letter heuristic and the leading '-' separator
+    - cmd.address (digits/dots/dashes/spaces up to the next non-address
+      char)
+    - cmd.cud_type / cmd.cud_data (when the first non-address char is
+      D, P, or H followed by at least one payload byte)
+  The bridge's NUI auth gate consumes the facility block; the CUD
+  field is captured but not yet forwarded to the X.25 layer (the
+  abstract include/x25.h interface takes only the address, so CUD
+  would need an API extension when real X.25 lands). Still deferred:
+    - abbreviated address detection (§3.5.15.2.2 - leading '.')
+    - per-facility argument syntax checks (CUG index format, NUI
+      forbidden-char rule, etc.)
+    - 'H' field hex-pair decoding (captured verbatim, not decoded
+      to bytes).
