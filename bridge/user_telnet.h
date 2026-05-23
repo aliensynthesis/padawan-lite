@@ -41,7 +41,7 @@
    This is conceptually parallel to the IAC code inside
    x25_telnet_bridge.c, but the roles are reversed (we are server
    here, client there) so the policies differ. The state machine
-   structure is the same; minor duplication accepted at v1.0. */
+   structure is the same; minor duplication accepted at v1.1. */
 
 #ifndef PADAWAN_BRIDGE_USER_TELNET_H
 #define PADAWAN_BRIDGE_USER_TELNET_H

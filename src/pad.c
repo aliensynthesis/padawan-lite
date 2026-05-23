@@ -44,7 +44,7 @@
    control (param 12 X-OFF state) and page-wait state - while either is
    active, all output is suppressed. Param 22's PAGE service signal is
    emitted inline at the moment the LF threshold is hit and any remaining
-   bytes in the call are dropped (v1.0 deviation). */
+   bytes in the call are dropped (v1.1 deviation). */
 static void to_dte(pad_session_t *p, const uint8 *data, uint32 len)
 {
     static const uint8 padding_buf[255] = {0};
@@ -114,7 +114,7 @@ static void to_dte(pad_session_t *p, const uint8 *data, uint32 len)
                 p->page_wait_active = 1;
                 p->emit_dte(p->ctx, page_sig, sizeof(page_sig));
                 /* Drop any remaining bytes in this call until X-ON arrives.
-                   v1.0 deviation: a real implementation would queue them. */
+                   v1.1 deviation: a real implementation would queue them. */
                 return;
             }
         }
@@ -213,7 +213,7 @@ static void echo_byte(pad_session_t *p, uint8 c)
         out = c;
     } else if (echo == 2) {
         /* X.3 3.2 value 2: echo all chars except the data forwarding
-           sequence. v1.0 interprets the "data forwarding sequence" as the
+           sequence. v1.1 interprets the "data forwarding sequence" as the
            characters selected by param 3 (param 25 / extended forwarding
            signals is deferred). */
         if (is_forwarding_char(p, c)) return;
@@ -646,7 +646,7 @@ static void dispatch_command(pad_session_t *p, const x28_command_t *cmd)
         break;
 
     case X28_CMD_LANG:
-        /* §5.3: LANGUAGE selection. v1.0 does not actually switch the
+        /* §5.3: LANGUAGE selection. v1.1 does not actually switch the
            service-signal text language (would set param 6's high nibble).
            Accept and acknowledge. See deviations.txt. */
         emit_ack(p);
@@ -870,7 +870,7 @@ static void complete_handshake(pad_session_t *p)
 /* Feed one byte while in ACTIVE_LINK or SERVICE_REQUEST. The byte is
    consumed by the handshake (not forwarded to the command parser).
    X.28 §2.2 envisages the PAD using the byte timing and values to
-   auto-detect line speed / code / parity; v1.0 has neither capability
+   auto-detect line speed / code / parity; v1.1 has neither capability
    (we're on a logical line) so the bytes are simply discarded apart
    from CR, which signals end of the service request. */
 static void feed_service_request_byte(pad_session_t *p, uint8 c)
@@ -954,7 +954,7 @@ static void feed_data_byte(pad_session_t *p, uint8 c)
 
     /* X.3 3.5: when ancillary device control is enabled (param 5 > 0)
        emit X-OFF to the DTE as the assembly buffer approaches capacity.
-       v1.0 simple high-watermark at 80% full; X-ON sent after the
+       v1.1 simple high-watermark at 80% full; X-ON sent after the
        next flush. Rarely triggers since forwarding usually keeps the
        buffer well below the mark. */
     if (p->params.values[X3_PAR_DEVICE] > 0 &&
@@ -1110,7 +1110,7 @@ int pad_remote_interrupted(pad_session_t *p, uint8 user_data)
     /* X.28 leaves the response to a remote-originated interrupt
        network-dependent ("for further study"). X.29 §3 allows the
        PAD to indicate the event to the DTE and/or discard buffered
-       output. v1.0 emits BEL (0x07) to the DTE when service signals
+       output. v1.1 emits BEL (0x07) to the DTE when service signals
        are enabled and we're in DATA_TRANSFER; the 1-byte user_data
        field of the X.25 interrupt packet is not currently surfaced.
        Buffered output is NOT discarded -- the PAD-side decision to
@@ -1194,7 +1194,7 @@ int pad_input_dte(pad_session_t *p, const uint8 *data, uint32 len)
         case PAD_STATE_DTE_WAITING:
         case PAD_STATE_SERVICE_READY:
             /* Transient pre-PAD-waiting states; bytes arriving during them
-               would be discarded by the spec. In v1.0 these states are not
+               would be discarded by the spec. In v1.1 these states are not
                held across input boundaries (complete_handshake runs to
                completion in one call), so this branch is unreachable in
                practice. */
@@ -1366,7 +1366,7 @@ static void dispatch_x29_message(pad_session_t *p, const x29_message_t *m)
         break;
 
     case X29_MSG_ERROR:
-        /* §4.5.6: remote complained about something we sent. v1.0
+        /* §4.5.6: remote complained about something we sent. v1.1
            silently absorbs. A debug build could log error_code +
            error_msg_type for diagnostics. */
         break;

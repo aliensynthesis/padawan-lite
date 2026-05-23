@@ -1,6 +1,6 @@
 # Padawan-Lite Quick Reference
 
-For ITU-T X.28 Packet Assembler/Disassembler v1.0.
+For ITU-T X.28 Packet Assembler/Disassembler v1.1.
 
 ## Invocation
 
@@ -18,6 +18,7 @@ padawan-lite [-c FILE] [-l PORT] [-a FILE] [-t] [-h]
 | `--trace`                  | Log inbound traffic per session (`hexdump -C` format)    |
 | `--trace-prefix PREFIX`    | Override `--trace` filename prefix (implies `--trace`)   |
 | `--trace-line-mode`        | CLIENT entries flush on CR; SERVICE pairs with each line |
+| `--pcp-port PORT`          | PAD Control Protocol listener on `127.0.0.1:PORT`        |
 | `-h`, `--help`             | Show usage                                               |
 
 Default (no flags): one session bound to stdin/stdout, simple profile,
@@ -81,7 +82,7 @@ Facility letters (Table 4/X.28):
 | `Q`  | Charging information                 |
 | `T`  | Transit delay                        |
 
-Arg syntax checks are not enforced in v1.0 — strings pass through verbatim.
+Arg syntax checks are not enforced in v1.1 — strings pass through verbatim.
 
 ## X.3 parameters (most-used)
 
@@ -160,7 +161,7 @@ bob
 
 `--auth FILE` makes every `SELECTION` require a matching `N<nui>` in the
 facility block. Calls without `N`, or with a `N` that's not in the
-allow-list, are rejected with `CLR NA C:0 D:0`. v1.0 does not yet
+allow-list, are rejected with `CLR NA C:0 D:0`. v1.1 does not yet
 honour session-level `ID <nui>` as a fallback — see `deviations.txt`.
 
 ## Address map file format
@@ -179,7 +180,7 @@ Loaded via `--config FILE`. Max 32 entries; address ≤ 15 chars, host
 
 ```
 $ padawan-lite --auth nuis.txt --config addrs.txt --telnet-defaults --listen 30000
-Padawan-Lite v1.0 - listening on TCP port 30000 (MAX_SESSIONS = 16).
+Padawan-Lite v1.1 - listening on TCP port 30000 (MAX_SESSIONS = 16).
 NUI auth: 1 entries loaded; calls require a matching N facility.
 Telnet-friendly defaults: SET 2:0, 3:0, 4:1 applied per session.
 ```
@@ -188,7 +189,7 @@ From another terminal:
 ```
 $ telnet localhost 30000
 <CR>                          # complete handshake
-PADAWAN-LITE v1.0
+PADAWAN-LITE v1.1
 Ndavid-30001<CR>              # call address 30001 with NUI=david
 COM                           # connected
 ... data flows ...

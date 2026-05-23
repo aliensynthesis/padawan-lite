@@ -4,6 +4,43 @@ All notable changes to Padawan-Lite are recorded here. The format
 follows [Keep a Changelog](https://keepachangelog.com/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] — 2026-05-23
+
+### Added
+
+- **PAD Control Protocol (PCP).** `--pcp-port PORT` opens a localhost
+  TCP listener implementing a line-oriented text control channel.
+  Host applications can drive Padawan-Lite's X.29 PAD-message
+  functions (`SET`, `READ`, `SETREAD`, `PAR`, `ICLR`, `BREAK`, `ERR`)
+  over a second TCP connection without modifying their Telnet
+  libraries. Bridge-originated X.29 messages from the PAD are
+  translated to `EVT` lines on the same channel, so inbound and
+  outbound X.29 traffic both flow over PCP without requiring
+  Q-bit transport. Implemented in `bridge/pcp.{h,c}`; reuses the
+  existing X.29 encode/decode and dispatcher in `src/x29_messages.c`
+  + `src/pad.c` with no PAD-core changes.
+
+### Changed
+
+- `x25_send(qbit=1)` now routes through PCP when a control
+  connection is bound to the session; falls back to
+  `X25_ERR_NOT_SUPPORTED` when nothing is bound (the pre-1.1
+  behaviour).
+- `bridge/x25_telnet_bridge.h` exposes two new accessors
+  (`x25_bridge_session_at_local`,
+  `x25_bridge_peer_ip_for_session`) used by PCP for `BIND` resolution
+  and source-IP validation.
+
+### Security
+
+- PCP listener binds `127.0.0.1` only; no flag to widen yet.
+- `BIND` requires the PCP control-connection source IP to match the
+  data-connection peer IP for the named session.
+- At most one PCP connection may be bound to a given session
+  concurrently.
+
+[1.1.0]: https://example.invalid/padawan-lite/releases/tag/v1.1.0
+
 ## [1.0.0] — 2026-05-23
 
 Initial public release of **Padawan-Lite**, the lightweight C89

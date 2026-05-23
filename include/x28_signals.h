@@ -29,7 +29,7 @@
 /* ITU-T X.28 (12/97) - PAD command signal parsing and PAD service signal
    formatting (X.28 clause 3.5).
 
-   Scope for v1.0: the local control commands (PAR?, PROF, SET, SET?, CLR,
+   Scope for v1.1: the local control commands (PAR?, PROF, SET, SET?, CLR,
    ICLR, STAT, RESET, INT) and the remote variants (RPAR?, RSET). A SELECTION
    command captures the raw text of a call-setup signal; deeper parsing of
    facility blocks (X.28 3.5.15) is deferred. */
@@ -158,12 +158,12 @@ int32 x28_format_status_free(uint8 *buf, uint32 buf_size);
 
 /* Connected PAD service signal (X.28 §3.5.21):
        <effector> "COM" <effector>
-   v1.0 emits the minimal form without the optional called-address,
+   v1.1 emits the minimal form without the optional called-address,
    facility, or call-user-data blocks (deferred until X.25). */
 int32 x28_format_connected(uint8 *buf, uint32 buf_size);
 
 /* Help PAD service signal (X.28 3.5.5 / §5.5). The subject string is from
-   the HELP command and selects the response text per Table 10/X.28; v1.0
+   the HELP command and selects the response text per Table 10/X.28; v1.1
    emits a single canned description regardless of subject. */
 int32 x28_format_help(const char *subject, uint8 *buf, uint32 buf_size);
 

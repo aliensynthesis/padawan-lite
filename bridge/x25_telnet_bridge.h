@@ -44,7 +44,7 @@
 
 /* Bind the PAD session that receives bridge-originated events
    (pad_input_remote, pad_call_connected, pad_remote_cleared, ...).
-   v1.0 is single-session; multi-session would track per-call_id. */
+   v1.1 is single-session; multi-session would track per-call_id. */
 void x25_bridge_bind(pad_session_t *p);
 
 /* Returns the socket fd of the active call, or -1 if no call is up.
@@ -59,7 +59,7 @@ void x25_bridge_poll_events(short revents);
 /* Load an address->host:port mapping table from a config file. File
    format: one entry per line, "<address> <host> <port>". Lines starting
    with '#' and blank lines are ignored. Returns 0 on success, -1 on
-   open error. Existing map is replaced. v1.0 capacity is small but
+   open error. Existing map is replaced. v1.1 capacity is small but
    sufficient for typical use; see deviations.txt. */
 int x25_bridge_load_map(const char *filename);
 
@@ -89,5 +89,24 @@ void x25_bridge_set_window_size_for_session(const pad_session_t *p,
    data delivery, peer-close). For single-session drivers, the simpler
    x25_bridge_poll_events still works. */
 void x25_bridge_poll_fd(int fd, short revents);
+
+/* --- PCP integration accessors --------------------------------------- */
+
+/* Look up the active session whose bridge-side outbound TCP has the
+   given local source IP and port. Used by PCP for BIND command
+   resolution: the host already knows the source endpoint of the
+   bridge's data connection (from its own accept()) and sends it as
+   the BIND argument. Returns NULL if no matching call is active.
+   ip_str is dotted-quad IPv4 (e.g. "192.168.1.5"); port is host
+   byte order. */
+pad_session_t *x25_bridge_session_at_local(const char *ip_str, int port);
+
+/* Write the printable peer IP of the bridge's outbound TCP for the
+   given session into ip_out (size ip_out_sz, at least 16 bytes for
+   INET_ADDRSTRLEN). Returns 0 on success, -1 if no active call.
+   Used by PCP to validate that a binding control connection comes
+   from the same host as the data connection. */
+int x25_bridge_peer_ip_for_session(const pad_session_t *p,
+                                   char *ip_out, uint32 ip_out_sz);
 
 #endif

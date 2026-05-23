@@ -28,7 +28,7 @@
 
 /* ITU-T X.3 (03/00) - Packet Assembly/Disassembly facility (PAD).
    Per-session PAD parameter storage, validation, and standard profiles.
-   Scope for v1.0: parameters 1-30. Refs 1-22 are the classic basic set
+   Scope for v1.1: parameters 1-30. Refs 1-22 are the classic basic set
    and are fully validated and behavioural. Refs 23-30 (extended set)
    are storage + range-checked only; behaviour is inert. They exist in
    the table so X.29 PAD-message Set/Read targeting any of them can be

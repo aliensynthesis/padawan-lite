@@ -26,7 +26,7 @@
 # EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 
-# Padawan-Lite v1.0 - Linux build (GNU make).
+# Padawan-Lite v1.1 - Linux build (GNU make).
 # Per CLAUDE.md: strict C89 with pedantic warnings, no compiler extensions.
 
 CC      ?= gcc
@@ -59,7 +59,8 @@ LIB_NAME = libpadawancore.a
 # a separate project later (see memory/project_bridge_target.md).
 BRIDGE_DIR        = bridge
 BRIDGE_LIB_SRC    = $(BRIDGE_DIR)/x25_telnet_bridge.c \
-                    $(BRIDGE_DIR)/user_telnet.c
+                    $(BRIDGE_DIR)/user_telnet.c \
+                    $(BRIDGE_DIR)/pcp.c
 BRIDGE_LIB_OBJ    = $(BRIDGE_LIB_SRC:.c=.o)
 BRIDGE_MAIN_SRC   = $(BRIDGE_DIR)/main.c
 BRIDGE_CFLAGS     = $(CFLAGS) -I$(BRIDGE_DIR)

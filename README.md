@@ -35,6 +35,11 @@ packet-switched era.
   `hexdump -C` logs of bytes the PAD receives from the client and
   from the host; `--trace-line-mode` consolidates client input by CR
   for easy reading when service-side character echo is in play.
+- **PAD Control Protocol (PCP).** `--pcp-port PORT` opens a
+  localhost text-protocol listener that lets host applications drive
+  the X.29 PAD-message layer (SET / READ / SETREAD / PAR / ICLR /
+  BREAK / ERR) over a second TCP connection — no Telnet-library
+  changes required on the host side.
 - **Pluggable transport.** Padawan-Lite talks to the network through
   an abstract X.25 service interface ([`include/x25.h`](include/x25.h));
   the Telnet/TCP bridge is one implementation. Write another if you
@@ -60,12 +65,12 @@ Interactive stdin session against a service listening on local port
 
 ```sh
 $ ./padawan-lite
-Padawan-Lite v1.0 - profile 1 (simple).
+Padawan-Lite v1.1 - profile 1 (simple).
 Address = TCP port on localhost (override via -c map).
 Press Enter to begin. Ctrl-B = break, Ctrl-P = recall, Ctrl-D = exit.
 
 <Enter>
-PADAWAN-LITE v1.0
+PADAWAN-LITE v1.1
 30001                                 # place the call
 COM                                   # connected
 ... interactive session ...
@@ -78,7 +83,7 @@ $ ./padawan-lite --listen 30000 \
             --auth nuis.txt \
             --baud 1200 \
             --telnet-defaults
-Padawan-Lite v1.0 - listening on TCP port 30000 (MAX_SESSIONS = 16).
+Padawan-Lite v1.1 - listening on TCP port 30000 (MAX_SESSIONS = 16).
 NUI auth: 2 entries loaded; calls require a matching N facility.
 Telnet-friendly defaults: SET 2:0, 3:0, 4:1 applied per session.
 Throttle: 120 bytes/sec per direction per session.
@@ -155,7 +160,7 @@ presentation difference is obvious at a glance.
 ```
 include/                   public headers (pad.h, x3.h, x28_signals.h, x25.h, types.h)
 src/                       platform-independent implementation
-platform/<name>/           per-platform shims (linux, vms)
+platform/<name>/           per-platform shims (linux today; structure ready for others)
 bridge/                    Telnet/TCP X.25 bridge + interactive driver (produces ./padawan-lite)
 tests/                     one test_<topic>.c per module, no external framework
 kb/                        authoritative ITU-T spec PDFs (X.1, X.2, X.3, X.8, X.25, X.28, X.29)

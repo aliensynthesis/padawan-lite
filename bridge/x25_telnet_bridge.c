@@ -47,7 +47,7 @@
        with "PADAWAN"; SB for anything else discarded.
      - Outbound 0xFF doubled per RFC 854.
 
-   v1.0 multi-session: state is per-call in g_calls[BRIDGE_MAX_CALLS].
+   v1.1 multi-session: state is per-call in g_calls[BRIDGE_MAX_CALLS].
    The current bridge driver (bridge/main.c) is still single-session
    and uses the compat APIs (x25_bridge_get_fd / x25_bridge_poll_events)
    which operate on the first active slot. */
@@ -57,6 +57,7 @@
 #include "x25_telnet_bridge.h"
 #include "x25.h"
 #include "pad.h"
+#include "pcp.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -68,6 +69,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include <netdb.h>
 
 /* --- per-call state ---------------------------------------------------- */
@@ -333,7 +335,7 @@ static void send_terminal_type(bridge_call_t *s)
     /* RFC 1091: the server may request TTYPE multiple times, expecting
        alternative names. When the client repeats the same name on
        consecutive responses, the server knows the list is exhausted.
-       v1.0 rotates through PADAWAN -> UNKNOWN -> UNKNOWN (settled). */
+       v1.1 rotates through PADAWAN -> UNKNOWN -> UNKNOWN (settled). */
     static const char *const names[] = { "PADAWAN", "UNKNOWN" };
     static const uint8 name_count = (uint8)(sizeof(names) / sizeof(names[0]));
     const char *t;
@@ -580,7 +582,7 @@ int x25_clear(x25_call_t *call, uint8 cause, uint8 diagnostic)
 
 int x25_reset(x25_call_t *call, uint8 cause, uint8 diagnostic)
 {
-    /* TCP has no analog of X.25 RESET; v1.0 logs and continues. */
+    /* TCP has no analog of X.25 RESET; v1.1 logs and continues. */
     (void)call; (void)cause; (void)diagnostic;
     return X25_OK;
 }
@@ -606,10 +608,16 @@ int x25_send(x25_call_t *call, const uint8 *data, uint32 len, uint8 qbit)
 
     if (s == NULL || s->fd < 0 || s->connecting) return X25_ERR_CLEARED;
     if (len == 0) return X25_OK;
-    /* Telnet has no qualified-data analogue. X.29 PAD messages over
-       this transport are unsupported; the caller (a future X.29
-       layer) gets X25_ERR_NOT_SUPPORTED and can decide what to do. */
-    if (qbit) return X25_ERR_NOT_SUPPORTED;
+    /* Telnet has no qualified-data analogue, so X.29 PAD messages
+       would normally be dropped here. If PCP is enabled and a control
+       connection is bound to this call's session, route the X.29
+       bytes through PCP as a text event instead. */
+    if (qbit) {
+        if (pcp_emit_x29_event(s->session, data, len) == 0) {
+            return X25_OK;
+        }
+        return X25_ERR_NOT_SUPPORTED;
+    }
 
     /* RFC 854: literal 0xFF in user data sent as IAC IAC. */
     for (i = 0; i < len; i++) {
@@ -768,4 +776,52 @@ void x25_bridge_poll_fd(int fd, short revents)
             return;
         }
     }
+}
+
+pad_session_t *x25_bridge_session_at_local(const char *ip_str, int port)
+{
+    int i;
+    if (ip_str == NULL) return NULL;
+    for (i = 0; i < BRIDGE_MAX_CALLS; i++) {
+        struct sockaddr_in local;
+        socklen_t          slen = sizeof(local);
+        char               buf[INET_ADDRSTRLEN];
+        bridge_call_t     *s = &g_calls[i];
+        if (!s->in_use || s->fd < 0) continue;
+        if (getsockname(s->fd, (struct sockaddr *)&local, &slen) != 0) {
+            continue;
+        }
+        if (local.sin_family != AF_INET) continue;
+        if (ntohs(local.sin_port) != (unsigned)port) continue;
+        if (inet_ntop(AF_INET, &local.sin_addr, buf, sizeof(buf)) == NULL) {
+            continue;
+        }
+        if (strcmp(buf, ip_str) == 0) return s->session;
+    }
+    return NULL;
+}
+
+int x25_bridge_peer_ip_for_session(const pad_session_t *p,
+                                   char *ip_out, uint32 ip_out_sz)
+{
+    int i;
+    if (p == NULL || ip_out == NULL || ip_out_sz < INET_ADDRSTRLEN) {
+        return -1;
+    }
+    for (i = 0; i < BRIDGE_MAX_CALLS; i++) {
+        struct sockaddr_in peer;
+        socklen_t          slen = sizeof(peer);
+        bridge_call_t     *s = &g_calls[i];
+        if (!s->in_use || s->fd < 0 || s->session != p) continue;
+        if (getpeername(s->fd, (struct sockaddr *)&peer, &slen) != 0) {
+            return -1;
+        }
+        if (peer.sin_family != AF_INET) return -1;
+        if (inet_ntop(AF_INET, &peer.sin_addr, ip_out,
+                      (socklen_t)ip_out_sz) == NULL) {
+            return -1;
+        }
+        return 0;
+    }
+    return -1;
 }

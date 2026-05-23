@@ -161,7 +161,7 @@ int x3_validate(uint8 id, uint8 value)
 
     case X3_PAR_SIGNALS:
         /* X.3 3.6: low nibble 0,1,2,4,5 plus high nibble for extended dialogue
-           mode (16,32,48,64) and network-dependent 8-15. v1.0 accepts the full
+           mode (16,32,48,64) and network-dependent 8-15. v1.1 accepts the full
            byte; a tighter check would reject impossible combinations like
            value 7. VERIFY: spec leaves "network-dependent" range open. */
         return X3_OK;
@@ -233,7 +233,7 @@ int x3_validate(uint8 id, uint8 value)
         return X3_OK;
 
     /* X.3 extended parameter set (refs 23-30). Storage + range checks
-       only; behaviour is inert in v1.0. Documented in deviations.txt. */
+       only; behaviour is inert in v1.1. Documented in deviations.txt. */
     case X3_PAR_IN_SIZE:    /* 0-255: input field size (0 = unlimited) */
         return X3_OK;
     case X3_PAR_EOF:        /* IA5 char (0-127), or 0 = none */

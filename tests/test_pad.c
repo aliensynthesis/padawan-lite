@@ -988,7 +988,7 @@ static void test_extended_help_emits_help_signal(void)
     memset(&io, 0, sizeof(io));
     pad_init(&pad, X3_PROFILE_SIMPLE, cb_dte, cb_remote, &io);
     feed(&pad, "HELP\r");
-    /* §5.5: a help PAD service signal is emitted. v1.0 begins with "HELP". */
+    /* §5.5: a help PAD service signal is emitted. v1.1 begins with "HELP". */
     ASSERT_TRUE(contains(io.dte_out, io.dte_len, "HELP"));
 }
 
@@ -1717,10 +1717,10 @@ static void test_pad_set_identification_changes_banner(void)
     pad_session_t pad;
     memset(&io, 0, sizeof(io));
     pad_init_handshake(&pad, X3_PROFILE_SIMPLE, cb_dte, cb_remote, &io);
-    pad_set_identification(&pad, "PADAWAN v1.0");
+    pad_set_identification(&pad, "PADAWAN v1.1");
     feed(&pad, "\r");                                 /* completes handshake */
     /* X.28 §3.5.18: the configured text appears in the emitted banner. */
-    ASSERT_TRUE(contains(io.dte_out, io.dte_len, "PADAWAN v1.0"));
+    ASSERT_TRUE(contains(io.dte_out, io.dte_len, "PADAWAN v1.1"));
 }
 
 static void test_pad_set_identification_empty_suppresses_banner(void)

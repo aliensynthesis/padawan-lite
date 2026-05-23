@@ -31,10 +31,10 @@
    Two modes:
      - default (no --listen): single session bound to stdin/stdout.
        Termios raw mode applied when stdin is a tty. This is the
-       interactive PAD demo, identical to v1.0's original driver.
+       interactive PAD demo, identical to v1.1's original driver.
      - --listen PORT: TCP server. Accepts incoming user connections,
        each becomes its own pad_session_t with its own x25_call_t.
-       v1.0 caps concurrent sessions at MAX_SESSIONS = 16.
+       v1.1 caps concurrent sessions at MAX_SESSIONS = 16.
 
    User-side connections in --listen mode are raw TCP (no Telnet IAC
    handling). Users connect with e.g. 'nc <host> <port>'. Adding
@@ -48,6 +48,7 @@
 #include "x25_telnet_bridge.h"
 #include "x28_signals.h"
 #include "user_telnet.h"
+#include "pcp.h"
 #include "platform.h"
 
 #include <stdio.h>
@@ -147,6 +148,7 @@ static int32 g_throttle_burst_mb = 0;  /* burst cap, milli-bytes */
    gets its own file named "<prefix>-<unix-ts>-<seq>.log". */
 static int  g_trace_enabled    = 0;
 static int  g_trace_line_mode  = 0;
+static int  g_pcp_port         = 0;   /* PCP listener port; 0 = disabled */
 static char g_trace_prefix[TRACE_PREFIX_MAX + 1] = TRACE_DEFAULT_PREFIX;
 static int  g_trace_seq        = 0;       /* monotonic session counter */
 
@@ -300,6 +302,9 @@ static user_session_t *alloc_session(void)
 static void destroy_session(user_session_t *u)
 {
     if (!u || !u->in_use) return;
+    /* Release any PCP control connection bound to this session before
+       the pad_session_t goes away. */
+    pcp_unbind_session(&u->pad);
     /* Close the bridge call (if any) before freeing the session, so
        the TCP socket on the X.25 side doesn't leak. */
     if (u->pad.call.connected) {
@@ -645,7 +650,7 @@ static void cb_remote(void *ctx, const uint8 *data, uint32 len)
     }
     /* Use the call handle that Padawan-Lite's SELECTION dispatch populated
        inside the session, not a separate one. The two were divergent
-       in v1.0 before this fix: a stale u->call with call_id = 0 was
+       in v1.1 before this fix: a stale u->call with call_id = 0 was
        being looked up, which after the generation-counter change
        (slot 0's gen becomes 1 on first use) failed to match any slot
        and silently dropped outbound data. */
@@ -669,7 +674,7 @@ static void setup_stdin_session(uint8 profile_id)
             destroy_session(u);
             return;
         }
-        pad_set_identification(&u->pad, "PADAWAN-LITE v1.0");
+        pad_set_identification(&u->pad, "PADAWAN-LITE v1.1");
         if (g_auth_active) {
             pad_set_auth_callback(&u->pad, nui_check_cb, NULL);
         }
@@ -681,7 +686,7 @@ static void setup_stdin_session(uint8 profile_id)
         signal(SIGWINCH, on_winch);
         push_window_size();
         fprintf(stderr,
-                "Padawan-Lite v1.0 - profile %u (simple).\n"
+                "Padawan-Lite v1.1 - profile %u (simple).\n"
                 "Address = TCP port on localhost (override via -c map).\n"
                 "Press Enter to begin. Ctrl-B = break, Ctrl-P = recall, "
                 "Ctrl-D = exit.\n",
@@ -700,7 +705,7 @@ static void setup_stdin_session(uint8 profile_id)
             pad_set_trace_callback(&u->pad, trace_callback, u);
         }
         fprintf(stderr,
-                "Padawan-Lite v1.0 (non-interactive).\n");
+                "Padawan-Lite v1.1 (non-interactive).\n");
     }
     fflush(stderr);
 
@@ -775,7 +780,7 @@ static void accept_session(uint8 profile_id)
         destroy_session(u);
         return;
     }
-    pad_set_identification(&u->pad, "PADAWAN-LITE v1.0");
+    pad_set_identification(&u->pad, "PADAWAN-LITE v1.1");
     if (g_auth_active) {
         pad_set_auth_callback(&u->pad, nui_check_cb, NULL);
     }
@@ -885,7 +890,10 @@ static void usage(const char *argv0)
         "      --trace-prefix <p>   override --trace filename prefix"
                                  " (implies --trace)\n"
         "      --trace-line-mode    accumulate CLIENT bytes until CR;"
-                                 " pair with SERVICE (implies --trace)\n"
+                                 " pair with SERVICE (implies --trace)\n");
+    fprintf(stderr,
+        "      --pcp-port <port>    PAD Control Protocol listener"
+                                 " (localhost; 0 = off)\n"
         "  -h, --help               this help\n"
         "  Default: single session over stdin/stdout.\n");
 }
@@ -956,6 +964,12 @@ int main(int argc, char **argv)
             memcpy(g_trace_prefix, argv[ai], n);
             g_trace_prefix[n] = '\0';
             g_trace_enabled   = 1;
+        } else if (strcmp(argv[ai], "--pcp-port") == 0) {
+            int port;
+            if (++ai >= argc) { usage(argv[0]); return 2; }
+            port = atoi(argv[ai]);
+            if (port < 0 || port > 65535) { usage(argv[0]); return 2; }
+            g_pcp_port = port;
         } else if (strcmp(argv[ai], "-h") == 0 ||
                    strcmp(argv[ai], "--help") == 0) {
             usage(argv[0]);
@@ -985,7 +999,7 @@ int main(int argc, char **argv)
             return 1;
         }
         fprintf(stderr,
-                "Padawan-Lite v1.0 - listening on TCP port %d "
+                "Padawan-Lite v1.1 - listening on TCP port %d "
                 "(MAX_SESSIONS = %d).\n",
                 listen_port, MAX_SESSIONS);
         if (g_auth_active) {
@@ -1016,11 +1030,29 @@ int main(int argc, char **argv)
         if (!any_session_active()) return 1;
     }
 
+    if (g_pcp_port > 0) {
+        if (pcp_init(g_pcp_port) != 0) {
+            fprintf(stderr, "PCP listen on 127.0.0.1:%d failed: %s\n",
+                    g_pcp_port, strerror(errno));
+            return 1;
+        }
+        fprintf(stderr,
+                "PCP: control protocol listening on 127.0.0.1:%d\n",
+                g_pcp_port);
+        fflush(stderr);
+    }
+
     last_ms = now_ms();
     for (;;) {
-        struct pollfd pfds[1 + MAX_SESSIONS * 2];
+        /* Capacity: 1 user-listener + 1 PCP-listener
+           + 2 fds per user session (user fd + bridge fd)
+           + PCP_MAX_CONNS PCP control connections. */
+        struct pollfd pfds[2 + MAX_SESSIONS * 2 + PCP_MAX_CONNS];
         int           nfds = 0;
         int           idx_listen = -1;
+        int           idx_pcp_listen = -1;
+        int           idx_pcp_first  = -1;
+        int           pcp_count      = 0;
         int           idx_user[MAX_SESSIONS];
         int           idx_bridge[MAX_SESSIONS];
         int           i;
@@ -1045,6 +1077,12 @@ int main(int argc, char **argv)
             pfds[nfds].events  = POLLIN;
             pfds[nfds].revents = 0;
             idx_listen = nfds++;
+        }
+        if (pcp_enabled()) {
+            pfds[nfds].fd      = pcp_listener_fd();
+            pfds[nfds].events  = POLLIN;
+            pfds[nfds].revents = 0;
+            idx_pcp_listen = nfds++;
         }
 
         for (i = 0; i < MAX_SESSIONS; i++) {
@@ -1092,6 +1130,16 @@ int main(int argc, char **argv)
             }
         }
 
+        if (pcp_enabled()) {
+            int got = pcp_collect_pollfds(&pfds[nfds],
+                                          PCP_MAX_CONNS);
+            if (got > 0) {
+                idx_pcp_first = nfds;
+                pcp_count     = got;
+                nfds         += got;
+            }
+        }
+
         if (nfds == 0) break; /* no sessions and no listener */
 
         timeout = any_ticking ? 50 : -1;
@@ -1124,6 +1172,18 @@ int main(int argc, char **argv)
         if (idx_listen >= 0 && pfds[idx_listen].revents) {
             accept_session(profile_id);
         }
+        if (idx_pcp_listen >= 0 && pfds[idx_pcp_listen].revents) {
+            pcp_handle_accept();
+        }
+        if (idx_pcp_first >= 0) {
+            int k;
+            for (k = 0; k < pcp_count; k++) {
+                struct pollfd *pf = &pfds[idx_pcp_first + k];
+                if (pf->revents) {
+                    pcp_handle_conn(pf->fd, pf->revents);
+                }
+            }
+        }
 
         for (i = 0; i < MAX_SESSIONS; i++) {
             if (idx_bridge[i] >= 0 &&
@@ -1155,6 +1215,7 @@ int main(int argc, char **argv)
         }
     }
     if (g_listen_fd >= 0) close(g_listen_fd);
+    pcp_shutdown();
     fprintf(stderr, "\n[padawan-lite shutdown]\n");
     return 0;
 }

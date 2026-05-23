@@ -1,3 +1,13 @@
 .claude/
 CLAUDE.md
 nuis.txt
+*-trace-*.log
+
+# build artifacts
+*.o
+*.a
+/padawan-lite
+/tests/test_pad
+/tests/test_x28_signals
+/tests/test_x29_messages
+/tests/test_x3
