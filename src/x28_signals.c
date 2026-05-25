@@ -71,7 +71,7 @@ static int is_letter_or_digit(uint8 c)
 static uint32 skip_ignored(const char *s, uint32 i, uint32 len)
 {
     /* §3.5: SP and DEL are not part of the command (unless assigned to an
-       editing function; v1.1 does not assign them, so we always skip). */
+       editing function; v1.2 does not assign them, so we always skip). */
     while (i < len && ((uint8)s[i] == IA5_SP || (uint8)s[i] == IA5_DEL)) {
         i++;
     }
@@ -266,7 +266,7 @@ static int parse_facility_block(const char *s, uint32 start, uint32 end,
    that prefix onward is captured as CUD. Pure-digit addresses (X.121)
    never collide with a CUD prefix; addresses containing dots, spaces,
    or tabs are tolerated. If the first non-address byte isn't a CUD
-   prefix, the whole input is treated as address (preserving v1.1
+   prefix, the whole input is treated as address (preserving v1.2
    behaviour for non-CUD signals). */
 static int capture_address_and_cud(const char *s, uint32 i, uint32 len,
                                    x28_command_t *out)
@@ -740,7 +740,7 @@ int32 x28_format_connected(uint8 *buf, uint32 buf_size)
 {
     uint32 pos = 0;
     int rc = 0;
-    /* §3.5.21: connected PAD service signal. v1.1 emits the minimal form:
+    /* §3.5.21: connected PAD service signal. v1.2 emits the minimal form:
        leading effector, "COM", trailing effector. Optional address /
        facility / call-user-data blocks are deferred. */
     if (put_effector(buf, buf_size, &pos) != 0) rc = -1;
@@ -808,7 +808,7 @@ int32 x28_format_help(const char *subject, uint8 *buf, uint32 buf_size)
                "may be lost. Stays in data-transfer state.";
     } else if (subject_is(subject, "PROF") || subject_is(subject, "PROFILE")) {
         body = "PROF <id> - load a standard profile into the X.3 "
-               "param set. v1.1: 1=simple, 90=transparent.";
+               "param set. v1.2: 1=simple, 90=transparent.";
     } else if (subject_is(subject, "BREAK") || subject_is(subject, "BR")) {
         body = "BREAK - issue a break signal per X.28 4.11. Action "
                "set by X.3 param 7 bits.";
@@ -819,7 +819,7 @@ int32 x28_format_help(const char *subject, uint8 *buf, uint32 buf_size)
         body = "IDOFF - clear the session-level NUI set by ID.";
     } else if (subject_is(subject, "LANG") || subject_is(subject, "LANGUAGE")) {
         body = "LANG <code> - select service-signal language. "
-               "v1.1 supports English only.";
+               "v1.2 supports English only.";
     } else if (subject_is(subject, "RPAR") || subject_is(subject, "RPAR?")) {
         body = "RPAR?<refs> - read the REMOTE PAD's X.3 params "
                "via X.29 PAD messages.";

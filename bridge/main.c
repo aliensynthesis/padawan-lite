@@ -31,10 +31,10 @@
    Two modes:
      - default (no --listen): single session bound to stdin/stdout.
        Termios raw mode applied when stdin is a tty. This is the
-       interactive PAD demo, identical to v1.1's original driver.
+       interactive PAD demo, identical to v1.2's original driver.
      - --listen PORT: TCP server. Accepts incoming user connections,
        each becomes its own pad_session_t with its own x25_call_t.
-       v1.1 caps concurrent sessions at MAX_SESSIONS = 16.
+       v1.2 caps concurrent sessions at MAX_SESSIONS = 16.
 
    User-side connections in --listen mode are raw TCP (no Telnet IAC
    handling). Users connect with e.g. 'nc <host> <port>'. Adding
@@ -49,6 +49,7 @@
 #include "x28_signals.h"
 #include "user_telnet.h"
 #include "pcp.h"
+#include "personality.h"
 #include "platform.h"
 
 #include <stdio.h>
@@ -149,6 +150,7 @@ static int32 g_throttle_burst_mb = 0;  /* burst cap, milli-bytes */
 static int  g_trace_enabled    = 0;
 static int  g_trace_line_mode  = 0;
 static int  g_pcp_port         = 0;   /* PCP listener port; 0 = disabled */
+static const personality_t *g_personality = NULL;  /* NULL = default */
 static char g_trace_prefix[TRACE_PREFIX_MAX + 1] = TRACE_DEFAULT_PREFIX;
 static int  g_trace_seq        = 0;       /* monotonic session counter */
 
@@ -650,7 +652,7 @@ static void cb_remote(void *ctx, const uint8 *data, uint32 len)
     }
     /* Use the call handle that Padawan-Lite's SELECTION dispatch populated
        inside the session, not a separate one. The two were divergent
-       in v1.1 before this fix: a stale u->call with call_id = 0 was
+       in v1.2 before this fix: a stale u->call with call_id = 0 was
        being looked up, which after the generation-counter change
        (slot 0's gen becomes 1 on first use) failed to match any slot
        and silently dropped outbound data. */
@@ -674,11 +676,12 @@ static void setup_stdin_session(uint8 profile_id)
             destroy_session(u);
             return;
         }
-        pad_set_identification(&u->pad, "PADAWAN-LITE v1.1");
+        pad_set_identification(&u->pad, "PADAWAN-LITE v1.2");
         if (g_auth_active) {
             pad_set_auth_callback(&u->pad, nui_check_cb, NULL);
         }
         if (g_telnet_defaults) apply_telnet_defaults(&u->pad);
+        if (g_personality) pad_set_personality(&u->pad, g_personality);
         trace_open(u, 1);
         if (u->trace_fp != NULL) {
             pad_set_trace_callback(&u->pad, trace_callback, u);
@@ -686,7 +689,7 @@ static void setup_stdin_session(uint8 profile_id)
         signal(SIGWINCH, on_winch);
         push_window_size();
         fprintf(stderr,
-                "Padawan-Lite v1.1 - profile %u (simple).\n"
+                "Padawan-Lite v1.2 - profile %u (simple).\n"
                 "Address = TCP port on localhost (override via -c map).\n"
                 "Press Enter to begin. Ctrl-B = break, Ctrl-P = recall, "
                 "Ctrl-D = exit.\n",
@@ -700,12 +703,13 @@ static void setup_stdin_session(uint8 profile_id)
             pad_set_auth_callback(&u->pad, nui_check_cb, NULL);
         }
         if (g_telnet_defaults) apply_telnet_defaults(&u->pad);
+        if (g_personality) pad_set_personality(&u->pad, g_personality);
         trace_open(u, 1);
         if (u->trace_fp != NULL) {
             pad_set_trace_callback(&u->pad, trace_callback, u);
         }
         fprintf(stderr,
-                "Padawan-Lite v1.1 (non-interactive).\n");
+                "Padawan-Lite v1.2 (non-interactive).\n");
     }
     fflush(stderr);
 
@@ -780,11 +784,12 @@ static void accept_session(uint8 profile_id)
         destroy_session(u);
         return;
     }
-    pad_set_identification(&u->pad, "PADAWAN-LITE v1.1");
+    pad_set_identification(&u->pad, "PADAWAN-LITE v1.2");
     if (g_auth_active) {
         pad_set_auth_callback(&u->pad, nui_check_cb, NULL);
     }
     if (g_telnet_defaults) apply_telnet_defaults(&u->pad);
+    if (g_personality) pad_set_personality(&u->pad, g_personality);
     trace_open(u, 0);
     if (u->trace_fp != NULL) {
         pad_set_trace_callback(&u->pad, trace_callback, u);
@@ -894,6 +899,8 @@ static void usage(const char *argv0)
     fprintf(stderr,
         "      --pcp-port <port>    PAD Control Protocol listener"
                                  " (localhost; 0 = off)\n"
+        "      --emulate <name>     PAD personality"
+                                 " (default, telenet, tymnet)\n"
         "  -h, --help               this help\n"
         "  Default: single session over stdin/stdout.\n");
 }
@@ -964,6 +971,15 @@ int main(int argc, char **argv)
             memcpy(g_trace_prefix, argv[ai], n);
             g_trace_prefix[n] = '\0';
             g_trace_enabled   = 1;
+        } else if (strcmp(argv[ai], "--emulate") == 0) {
+            if (++ai >= argc) { usage(argv[0]); return 2; }
+            g_personality = personality_by_name(argv[ai]);
+            if (g_personality == NULL) {
+                fprintf(stderr,
+                        "unknown personality '%s' "
+                        "(try default, telenet, tymnet)\n", argv[ai]);
+                return 2;
+            }
         } else if (strcmp(argv[ai], "--pcp-port") == 0) {
             int port;
             if (++ai >= argc) { usage(argv[0]); return 2; }
@@ -999,7 +1015,7 @@ int main(int argc, char **argv)
             return 1;
         }
         fprintf(stderr,
-                "Padawan-Lite v1.1 - listening on TCP port %d "
+                "Padawan-Lite v1.2 - listening on TCP port %d "
                 "(MAX_SESSIONS = %d).\n",
                 listen_port, MAX_SESSIONS);
         if (g_auth_active) {

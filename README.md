@@ -16,7 +16,7 @@ packet-switched era.
 ## Features
 
 - **ITU-T X.28 / X.3 / X.29 compliant.** Every command, every
-  parameter, every service signal from the standard. 594 unit tests
+  parameter, every service signal from the standard. 619 unit tests
   cite the spec clauses they exercise; every known deviation is
   recorded in [`deviations.txt`](deviations.txt).
 - **Two run modes.** Single session over stdin/stdout for an
@@ -40,6 +40,13 @@ packet-switched era.
   the X.29 PAD-message layer (SET / READ / SETREAD / PAR / ICLR /
   BREAK / ERR) over a second TCP connection — no Telnet-library
   changes required on the host side.
+- **PAD personality system.** `--emulate <name>` swaps the visible
+  PAD surface (banner, prompt character, NUI prompt, service-signal
+  text, X.3 profile overlay) to recreate historical PSPDN PAD
+  experiences. Ships with `default` (X.28-standard), `telenet`,
+  and `tymnet` personalities. The Telenet and Tymnet data are
+  best-effort reconstructions; see `src/personality.c` for VERIFY
+  caveats.
 - **Pluggable transport.** Padawan-Lite talks to the network through
   an abstract X.25 service interface ([`include/x25.h`](include/x25.h));
   the Telnet/TCP bridge is one implementation. Write another if you
@@ -51,7 +58,7 @@ Linux with GCC 11+ and GNU make:
 
 ```sh
 make            # builds padawan-lite binary, libpadawancore.a, and test binaries
-make test       # runs the 594-test suite (4 binaries: test_pad, test_x28_signals, test_x29_messages, test_x3)
+make test       # runs the 619-test suite (5 binaries: test_pad, test_personality, test_x28_signals, test_x29_messages, test_x3)
 ./padawan-lite -h  # CLI usage summary
 ```
 
@@ -65,12 +72,12 @@ Interactive stdin session against a service listening on local port
 
 ```sh
 $ ./padawan-lite
-Padawan-Lite v1.1 - profile 1 (simple).
+Padawan-Lite v1.2 - profile 1 (simple).
 Address = TCP port on localhost (override via -c map).
 Press Enter to begin. Ctrl-B = break, Ctrl-P = recall, Ctrl-D = exit.
 
 <Enter>
-PADAWAN-LITE v1.1
+PADAWAN-LITE v1.2
 30001                                 # place the call
 COM                                   # connected
 ... interactive session ...
@@ -83,7 +90,7 @@ $ ./padawan-lite --listen 30000 \
             --auth nuis.txt \
             --baud 1200 \
             --telnet-defaults
-Padawan-Lite v1.1 - listening on TCP port 30000 (MAX_SESSIONS = 16).
+Padawan-Lite v1.2 - listening on TCP port 30000 (MAX_SESSIONS = 16).
 NUI auth: 2 entries loaded; calls require a matching N facility.
 Telnet-friendly defaults: SET 2:0, 3:0, 4:1 applied per session.
 Throttle: 120 bytes/sec per direction per session.
@@ -196,6 +203,8 @@ cites the clause it exercises.
 $ make test
 ==> tests/test_pad
 ok 252/252
+==> tests/test_personality
+ok 25/25
 ==> tests/test_x28_signals
 ok 199/199
 ==> tests/test_x29_messages

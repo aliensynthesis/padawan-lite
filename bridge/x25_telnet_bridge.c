@@ -47,7 +47,7 @@
        with "PADAWAN"; SB for anything else discarded.
      - Outbound 0xFF doubled per RFC 854.
 
-   v1.1 multi-session: state is per-call in g_calls[BRIDGE_MAX_CALLS].
+   v1.2 multi-session: state is per-call in g_calls[BRIDGE_MAX_CALLS].
    The current bridge driver (bridge/main.c) is still single-session
    and uses the compat APIs (x25_bridge_get_fd / x25_bridge_poll_events)
    which operate on the first active slot. */
@@ -335,7 +335,7 @@ static void send_terminal_type(bridge_call_t *s)
     /* RFC 1091: the server may request TTYPE multiple times, expecting
        alternative names. When the client repeats the same name on
        consecutive responses, the server knows the list is exhausted.
-       v1.1 rotates through PADAWAN -> UNKNOWN -> UNKNOWN (settled). */
+       v1.2 rotates through PADAWAN -> UNKNOWN -> UNKNOWN (settled). */
     static const char *const names[] = { "PADAWAN", "UNKNOWN" };
     static const uint8 name_count = (uint8)(sizeof(names) / sizeof(names[0]));
     const char *t;
@@ -582,7 +582,7 @@ int x25_clear(x25_call_t *call, uint8 cause, uint8 diagnostic)
 
 int x25_reset(x25_call_t *call, uint8 cause, uint8 diagnostic)
 {
-    /* TCP has no analog of X.25 RESET; v1.1 logs and continues. */
+    /* TCP has no analog of X.25 RESET; v1.2 logs and continues. */
     (void)call; (void)cause; (void)diagnostic;
     return X25_OK;
 }

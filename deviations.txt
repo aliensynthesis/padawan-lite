@@ -30,7 +30,7 @@ KNOWN DEVIATIONS
   avoid rejecting valid network-specific values. Marked VERIFY in source.
 
 
-OUT OF SCOPE FOR v1.1
+OUT OF SCOPE FOR v1.2
 ---------------------
 
 These are deferred deliberately and will be addressed in later phases.
@@ -80,7 +80,7 @@ Each item names the spec clauses that govern it.
   X.3 3.5 ancillary device control is implemented as: emit X-OFF (DC3)
   to DTE when the assembly buffer reaches 80% capacity (a simple
   high-watermark), and X-ON (DC1) after the next flush. The spec
-  leaves the throttling policy network-dependent; v1.1 uses a fixed
+  leaves the throttling policy network-dependent; v1.2 uses a fixed
   threshold and rarely triggers in normal use because forwarding-char
   flushes keep the buffer well below the mark.
 
@@ -96,7 +96,7 @@ Each item names the spec clauses that govern it.
   X.28 §4.18.3 enumerates several conditions that reset the page-wait
   linefeed count (data forwarding conditions, echoed LF in user input,
   line-deleted PAD service signal with associated linefeeds, leaving
-  PAD command state with associated linefeeds). v1.1 resets only on
+  PAD command state with associated linefeeds). v1.2 resets only on
   CR emission and on X-ON cancel.
 
 [2026-05-20] src/pad.c - param 13 all three bits implemented
@@ -174,7 +174,7 @@ Each item names the spec clauses that govern it.
   PAD-message dispatcher Set/Read across the full range without
   table-size special cases. Specifically still NOT implemented:
     - param 25 (extended forwarding signals): echo logic still
-      consults only param 3 (see the v1.1 entry below).
+      consults only param 3 (see the v1.2 entry below).
     - params 26/27 (display interrupt): no DTE-visible display.
     - param 29 (extended echo mask): no influence on echoed bytes.
     - param 30 (default packet size): no effect on the bridge or any
@@ -217,7 +217,7 @@ Each item names the spec clauses that govern it.
   x25_reset() in the telnet bridge is a no-op (logs and returns OK).
   TCP has no in-band reset primitive comparable to X.25's RESET packet.
   An aggressive alternative would close+reconnect, but that loses
-  application-level state on the peer side. v1.1 treats reset as a
+  application-level state on the peer side. v1.2 treats reset as a
   silent no-op when bridging.
 
 [2026-05-21] bridge/x25_telnet_bridge.c - INT mapped to Telnet IAC IP
@@ -230,7 +230,7 @@ Each item names the spec clauses that govern it.
   file loaded with --config (bridge/main.c -c FILE). File format:
   one line per entry, "<address> <host> <port>", comments start with
   '#'. Unmapped addresses fall back to localhost:<address-as-port>.
-  v1.1 caps the table at 32 entries; addresses up to 15 chars; hosts
+  v1.2 caps the table at 32 entries; addresses up to 15 chars; hosts
   up to 63 chars. Host resolution uses getaddrinfo (IPv4 only).
 
 [2026-05-21] bridge/x25_telnet_bridge.c - Telnet IAC handling is minimal
@@ -277,7 +277,7 @@ Each item names the spec clauses that govern it.
   user_telnet_t).
   NAWS from the user is forwarded to that user's bridge call via
   x25_bridge_set_window_size_for_session (per-session API added in
-  v1.1), so a user's window-size update doesn't clobber other users'
+  v1.2), so a user's window-size update doesn't clobber other users'
   sizes. Outbound IAC escape (PAD-to-user direction): cb_dte routes
   through user_telnet_write for TCP sessions, which doubles literal
   0xFF bytes per RFC 854; stdin sessions write raw.
@@ -329,6 +329,28 @@ Each item names the spec clauses that govern it.
     high-water mark, so the kernel TCP socket buffer absorbs the
     slack and the peer backpressures via TCP -- overflow should not
     occur under normal traffic.
+
+[2026-05-24] src/personality.c - PAD personality system
+  --emulate <name> selects a personality_t that overrides the
+  visible PAD surface (banner, prompt char, NUI prompt, service
+  signal text for STAT/ERR/COM/CLR, and an X.3 profile overlay)
+  without changing the X.28 state machine. The default personality
+  is an all-NULL overrides table, so behaviour without --emulate
+  matches v1.1 X.28-standard behaviour exactly.
+  Built-in personalities: default, telenet, tymnet.
+  IMPORTANT VERIFY: The Telenet and Tymnet data tables in
+  src/personality.c are best-effort reconstructions based on general
+  knowledge of 1970s/80s PSPDN PAD behaviour, NOT validated against
+  primary-source operator manuals (GTE Telenet operations docs,
+  Tymshare PAD manuals). Specific signal strings ("BUSY", "READY",
+  "please log in:", "user name:", etc.) and the profile overlays
+  are plausible but unverified; users targeting bit-for-bit
+  Telenet or Tymnet fidelity should consult the original
+  documentation (bitsavers.org, archive.org) and submit corrections.
+  VERIFY markers in src/personality.c flag the specific guesses.
+  The personality infrastructure itself (the struct, the lookup,
+  the override-then-fallback pattern in pad.c) is spec-clean and
+  ready to accept verified data when it becomes available.
 
 [2026-05-23] bridge/pcp.c - PAD Control Protocol (PCP) side-channel
   --pcp-port N enables a separate TCP listener on 127.0.0.1:N that
@@ -406,7 +428,7 @@ Each item names the spec clauses that govern it.
 
 [2026-05-21] src/pad.c - COM signal lacks optional address/facility blocks
   X.28 §3.5.21 connected PAD service signal is now emitted on successful
-  call setup (both sync and async paths). v1.1 emits the minimal form:
+  call setup (both sync and async paths). v1.2 emits the minimal form:
   leading effector, "COM", trailing effector. The optional called-DTE
   address, facility, and call-user-data blocks are not included; they
   arrive with structured selection-signal facility-block work.
@@ -420,20 +442,20 @@ Each item names the spec clauses that govern it.
 [2026-05-20] src/pad.c - echo value 2 honours param 3 only, not param 25
   X.3 3.2 value 2 ("echo all except the data forwarding sequence")
   refers to the data forwarding sequence selected by param 3 or by
-  param 25 (extended data forwarding signals, X.3 3.25). v1.1
-  considers only param 3; param 25 is out of v1.1 scope and the echo
+  param 25 (extended data forwarding signals, X.3 3.25). v1.2
+  considers only param 3; param 25 is out of v1.2 scope and the echo
   exception logic does not consult it.
 
 [2026-05-20] src/pad.c - break bit 2 (indication of break) not delivered
   X.3 3.7 / X.28 4.11: when param 7 bit 2 (value 4) is set, the PAD
   shall send an 'indication of break' PAD message to the remote DTE.
-  This requires the X.29 PAD-message layer, which is out of v1.1
+  This requires the X.29 PAD-message layer, which is out of v1.2
   scope. pad_break currently ignores bit 2; the other four basic
   actions (interrupt, reset, escape, discard) are implemented.
 
 [2026-05-20] src/pad.c - display interrupt not implemented
   X.3 3.26 / 3.27 (params 26, 27) for display interrupt and its
-  confirmation prompt are outside the v1.1 parameter set (refs 1-22)
+  confirmation prompt are outside the v1.2 parameter set (refs 1-22)
   and not implemented.
 
 [2026-05-21] src/pad.c - remote queue overflow drops new bytes
@@ -479,12 +501,12 @@ Each item names the spec clauses that govern it.
   per X.28 and is folded into PAD_STATE_DTE_WAITING / handled via the
   command-state post-dispatch transition. State 5A (PAD aspect
   transition for MAP) and the transient state 8 (service signals)
-  are out of scope for v1.1.
+  are out of scope for v1.2.
 
 [2026-05-20] src/pad.c - service request signal not auto-detected
   X.28 §2.2.2 envisages the PAD using the byte timing and value of the
   service request signal to detect line speed, code (IA5 vs others),
-  and parity, and to select the initial profile. Padawan-Lite v1.1 is on
+  and parity, and to select the initial profile. Padawan-Lite v1.2 is on
   a logical line (stdio); feed_service_request_byte simply consumes
   bytes until CR (the §3.5.16 format is "for further study"). param 11
   (binary speed) is left at its profile default rather than being
@@ -493,13 +515,13 @@ Each item names the spec clauses that govern it.
 [2026-05-20] src/pad.c - §2.2.5 fault timeout not implemented
   If no service request signal arrives within Y seconds the PAD shall
   perform PAD clearing by disconnecting the access information path.
-  Y is "for further study". v1.1 has no timer for this; the session
+  Y is "for further study". v1.2 has no timer for this; the session
   remains in ACTIVE_LINK indefinitely until a byte arrives.
 
 [2026-05-23] src/pad.c - pad_remote_interrupted emits BEL to DTE
   X.28 §3.5 leaves the PAD's response to a remote-originated interrupt
   "for further study". X.29 §3 allows the PAD to indicate the event
-  to the DTE and/or discard buffered output. v1.1 takes the indicate
+  to the DTE and/or discard buffered output. v1.2 takes the indicate
   path: when the session is in DATA_TRANSFER and service signals are
   enabled (param 6 != 0), pad_remote_interrupted emits a single BEL
   (0x07) to the DTE. The 1-byte user_data field of the X.25 interrupt
@@ -539,7 +561,7 @@ Each item names the spec clauses that govern it.
   Clear (0x01), Set (0x02), Indication of Break (0x03), Read (0x04),
   Error (0x05), Set-and-Read (0x06) per Table 1/X.29. Reselection
   (0x07) is decoded but not dispatched (the §4.5.7 NLI semantics
-  are out of v1.1 scope and would need real X.25 facilities).
+  are out of v1.2 scope and would need real X.25 facilities).
   Wire-format coverage:
     - encode + decode tested round-trip in tests/test_x29_messages.c
       (73 assertions covering each type, both forms of Indication of

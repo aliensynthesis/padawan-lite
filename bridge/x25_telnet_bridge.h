@@ -44,7 +44,7 @@
 
 /* Bind the PAD session that receives bridge-originated events
    (pad_input_remote, pad_call_connected, pad_remote_cleared, ...).
-   v1.1 is single-session; multi-session would track per-call_id. */
+   v1.2 is single-session; multi-session would track per-call_id. */
 void x25_bridge_bind(pad_session_t *p);
 
 /* Returns the socket fd of the active call, or -1 if no call is up.
@@ -59,7 +59,7 @@ void x25_bridge_poll_events(short revents);
 /* Load an address->host:port mapping table from a config file. File
    format: one entry per line, "<address> <host> <port>". Lines starting
    with '#' and blank lines are ignored. Returns 0 on success, -1 on
-   open error. Existing map is replaced. v1.1 capacity is small but
+   open error. Existing map is replaced. v1.2 capacity is small but
    sufficient for typical use; see deviations.txt. */
 int x25_bridge_load_map(const char *filename);
 

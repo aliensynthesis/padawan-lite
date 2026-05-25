@@ -26,7 +26,7 @@
 # EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 
-# Padawan-Lite v1.1 - Linux build (GNU make).
+# Padawan-Lite v1.2 - Linux build (GNU make).
 # Per CLAUDE.md: strict C89 with pedantic warnings, no compiler extensions.
 
 CC      ?= gcc
@@ -38,7 +38,7 @@ LDFLAGS  =
 # path out of the base CFLAGS for cleaner separation.
 TEST_CFLAGS = $(CFLAGS) -Iplatform/linux
 
-LIB_SRC      = src/x3.c src/x28_signals.c src/x29_messages.c src/pad.c
+LIB_SRC      = src/x3.c src/x28_signals.c src/x29_messages.c src/personality.c src/pad.c
 LIB_OBJ      = $(LIB_SRC:.c=.o)
 
 # Platform stub - used only by the test binaries. The padawan-lite binary

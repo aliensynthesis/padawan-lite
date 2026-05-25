@@ -28,6 +28,7 @@
 
 /* PAD session state machine and command dispatcher (X.28 clauses 3, 4). */
 #include "pad.h"
+#include "personality.h"
 #include "x28_signals.h"
 #include "x29.h"
 #include <string.h>
@@ -44,7 +45,7 @@
    control (param 12 X-OFF state) and page-wait state - while either is
    active, all output is suppressed. Param 22's PAGE service signal is
    emitted inline at the moment the LF threshold is hit and any remaining
-   bytes in the call are dropped (v1.1 deviation). */
+   bytes in the call are dropped (v1.2 deviation). */
 static void to_dte(pad_session_t *p, const uint8 *data, uint32 len)
 {
     static const uint8 padding_buf[255] = {0};
@@ -114,7 +115,7 @@ static void to_dte(pad_session_t *p, const uint8 *data, uint32 len)
                 p->page_wait_active = 1;
                 p->emit_dte(p->ctx, page_sig, sizeof(page_sig));
                 /* Drop any remaining bytes in this call until X-ON arrives.
-                   v1.1 deviation: a real implementation would queue them. */
+                   v1.2 deviation: a real implementation would queue them. */
                 return;
             }
         }
@@ -213,7 +214,7 @@ static void echo_byte(pad_session_t *p, uint8 c)
         out = c;
     } else if (echo == 2) {
         /* X.3 3.2 value 2: echo all chars except the data forwarding
-           sequence. v1.1 interprets the "data forwarding sequence" as the
+           sequence. v1.2 interprets the "data forwarding sequence" as the
            characters selected by param 3 (param 25 / extended forwarding
            signals is deferred). */
         if (is_forwarding_char(p, c)) return;
@@ -254,11 +255,32 @@ static void emit_ack(pad_session_t *p)
     if (n > 0) to_dte(p, buf, (uint32)n);
 }
 
+/* Emit a personality-style "effector + text + effector" service signal:
+   CR LF <text> CR LF. Used when a personality overrides the X.28
+   abbreviation for a signal. */
+static void emit_signal_text(pad_session_t *p, const char *text)
+{
+    uint8 buf[128];
+    uint32 pos = 0;
+    uint32 tlen;
+    if (text == NULL) return;
+    tlen = (uint32)strlen(text);
+    if (tlen > sizeof(buf) - 4) tlen = (uint32)sizeof(buf) - 4;
+    buf[pos++] = IA5_CR; buf[pos++] = IA5_LF;
+    memcpy(buf + pos, text, tlen); pos += tlen;
+    buf[pos++] = IA5_CR; buf[pos++] = IA5_LF;
+    to_dte(p, buf, pos);
+}
+
 static void emit_err(pad_session_t *p)
 {
     uint8 buf[16];
     int32 n;
     if (!signals_enabled(p)) return;
+    if (p->personality && p->personality->err_text) {
+        emit_signal_text(p, p->personality->err_text);
+        return;
+    }
     n = x28_format_err(buf, sizeof(buf));
     if (n > 0) to_dte(p, buf, (uint32)n);
 }
@@ -268,6 +290,12 @@ static void emit_status(pad_session_t *p)
     uint8 buf[16];
     int32 n;
     if (!signals_enabled(p)) return;
+    if (p->personality) {
+        const char *t = p->call.connected
+                            ? p->personality->engaged_text
+                            : p->personality->free_text;
+        if (t != NULL) { emit_signal_text(p, t); return; }
+    }
     n = p->call.connected
             ? x28_format_status_engaged(buf, sizeof(buf))
             : x28_format_status_free(buf, sizeof(buf));
@@ -300,6 +328,10 @@ static void emit_connected(pad_session_t *p)
     uint8 buf[16];
     int32 n;
     if (!signals_enabled(p)) return;
+    if (p->personality && p->personality->connected_text) {
+        emit_signal_text(p, p->personality->connected_text);
+        return;
+    }
     n = x28_format_connected(buf, sizeof(buf));
     if (n > 0) to_dte(p, buf, (uint32)n);
 }
@@ -311,11 +343,15 @@ static void emit_connected(pad_session_t *p)
 static void emit_prompt_if_enabled(pad_session_t *p)
 {
     uint8 buf[3];
+    uint8 ch = '*';                            /* X.28 default */
     if (!signals_enabled(p)) return;
     if (!(p->params.values[X3_PAR_SIGNALS] & 0x04)) return;
+    if (p->personality && p->personality->prompt_char != 0) {
+        ch = p->personality->prompt_char;
+    }
     buf[0] = IA5_CR;
     buf[1] = IA5_LF;
-    buf[2] = '*';
+    buf[2] = ch;
     to_dte(p, buf, 3);
 }
 
@@ -623,10 +659,11 @@ static void dispatch_command(pad_session_t *p, const x28_command_t *cmd)
            of being parsed as a new command. */
         if (cmd->address_len == 0) {
             if (signals_enabled(p)) {
-                static const uint8 prompt[] = { IA5_CR, IA5_LF,
-                                                'N','U','I','?',
-                                                IA5_CR, IA5_LF };
-                to_dte(p, prompt, sizeof(prompt));
+                const char *text = "NUI?";
+                if (p->personality && p->personality->nui_prompt) {
+                    text = p->personality->nui_prompt;
+                }
+                emit_signal_text(p, text);
             }
             p->awaiting_nui = 1;
         } else {
@@ -646,7 +683,7 @@ static void dispatch_command(pad_session_t *p, const x28_command_t *cmd)
         break;
 
     case X28_CMD_LANG:
-        /* §5.3: LANGUAGE selection. v1.1 does not actually switch the
+        /* §5.3: LANGUAGE selection. v1.2 does not actually switch the
            service-signal text language (would set param 6's high nibble).
            Accept and acknowledge. See deviations.txt. */
         emit_ack(p);
@@ -870,7 +907,7 @@ static void complete_handshake(pad_session_t *p)
 /* Feed one byte while in ACTIVE_LINK or SERVICE_REQUEST. The byte is
    consumed by the handshake (not forwarded to the command parser).
    X.28 §2.2 envisages the PAD using the byte timing and values to
-   auto-detect line speed / code / parity; v1.1 has neither capability
+   auto-detect line speed / code / parity; v1.2 has neither capability
    (we're on a logical line) so the bytes are simply discarded apart
    from CR, which signals end of the service request. */
 static void feed_service_request_byte(pad_session_t *p, uint8 c)
@@ -954,7 +991,7 @@ static void feed_data_byte(pad_session_t *p, uint8 c)
 
     /* X.3 3.5: when ancillary device control is enabled (param 5 > 0)
        emit X-OFF to the DTE as the assembly buffer approaches capacity.
-       v1.1 simple high-watermark at 80% full; X-ON sent after the
+       v1.2 simple high-watermark at 80% full; X-ON sent after the
        next flush. Rarely triggers since forwarding usually keeps the
        buffer well below the mark. */
     if (p->params.values[X3_PAR_DEVICE] > 0 &&
@@ -998,6 +1035,17 @@ void pad_set_auth_callback(pad_session_t *p, pad_auth_fn cb, void *ctx)
 {
     p->auth_cb  = cb;
     p->auth_ctx = ctx;
+}
+
+void pad_set_personality(pad_session_t *p, const personality_t *pers)
+{
+    p->personality = pers;
+    if (pers != NULL) {
+        personality_apply_profile_overlay(pers, &p->params);
+        if (pers->banner != NULL) {
+            pad_set_identification(p, pers->banner);
+        }
+    }
 }
 
 void pad_set_trace_callback(pad_session_t *p, pad_trace_fn cb, void *ctx)
@@ -1065,10 +1113,21 @@ int pad_remote_cleared(pad_session_t *p, pad_clear_cause_t cause,
                        uint8 cause_code, uint8 diagnostic)
 {
     if (signals_enabled(p)) {
-        uint8 buf[64];
-        int32 n = x28_format_clr_indication(clear_cause_text(cause),
-                                            cause_code, diagnostic,
-                                            buf, sizeof(buf));
+        uint8       buf[64];
+        const char *text = NULL;
+        int32       n;
+        /* Personality may override the per-cause abbreviation. Bounds-
+           check against PERSONALITY_CLR_CAUSE_COUNT since pad_clear_cause_t
+           is an int. */
+        if (p->personality &&
+            (uint32)cause < PERSONALITY_CLR_CAUSE_COUNT &&
+            p->personality->clr_text[cause] != NULL) {
+            text = p->personality->clr_text[cause];
+        } else {
+            text = clear_cause_text(cause);
+        }
+        n = x28_format_clr_indication(text, cause_code, diagnostic,
+                                      buf, sizeof(buf));
         if (n > 0) to_dte(p, buf, (uint32)n);
     }
     p->call.connected = 0;
@@ -1110,7 +1169,7 @@ int pad_remote_interrupted(pad_session_t *p, uint8 user_data)
     /* X.28 leaves the response to a remote-originated interrupt
        network-dependent ("for further study"). X.29 §3 allows the
        PAD to indicate the event to the DTE and/or discard buffered
-       output. v1.1 emits BEL (0x07) to the DTE when service signals
+       output. v1.2 emits BEL (0x07) to the DTE when service signals
        are enabled and we're in DATA_TRANSFER; the 1-byte user_data
        field of the X.25 interrupt packet is not currently surfaced.
        Buffered output is NOT discarded -- the PAD-side decision to
@@ -1194,7 +1253,7 @@ int pad_input_dte(pad_session_t *p, const uint8 *data, uint32 len)
         case PAD_STATE_DTE_WAITING:
         case PAD_STATE_SERVICE_READY:
             /* Transient pre-PAD-waiting states; bytes arriving during them
-               would be discarded by the spec. In v1.1 these states are not
+               would be discarded by the spec. In v1.2 these states are not
                held across input boundaries (complete_handshake runs to
                completion in one call), so this branch is unreachable in
                practice. */
@@ -1366,7 +1425,7 @@ static void dispatch_x29_message(pad_session_t *p, const x29_message_t *m)
         break;
 
     case X29_MSG_ERROR:
-        /* §4.5.6: remote complained about something we sent. v1.1
+        /* §4.5.6: remote complained about something we sent. v1.2
            silently absorbs. A debug build could log error_code +
            error_msg_type for diagnostics. */
         break;

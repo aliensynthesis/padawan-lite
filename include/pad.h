@@ -52,7 +52,7 @@
 /* State numbers match X.28 Figures 1/X.28 and 2/X.28. State 3B (DTE
    waiting after a PAD command signal) is functionally equivalent to 3A
    per the spec and is not separately modelled. State 5A (MAP aspect
-   transition) and state 8 (service signals - transient) are out of v1.1
+   transition) and state 8 (service signals - transient) are out of v1.2
    scope; see deviations.txt. */
 typedef enum {
     PAD_STATE_ACTIVE_LINK      = 1,
@@ -183,6 +183,12 @@ typedef struct {
        See pad_trace_fn and pad_set_trace_callback. */
     pad_trace_fn trace_cb;
     void        *trace_ctx;
+
+    /* PAD personality (NULL = X.28-standard "default" behaviour).
+       Defines text overrides for service signals, prompt character,
+       NUI prompt, banner, and an optional X.3 profile overlay.
+       See include/personality.h. */
+    const struct personality *personality;
 } pad_session_t;
 
 /* Initialise a session: load profile_id into params, set state to PAD
@@ -211,7 +217,7 @@ int pad_input_dte(pad_session_t *p, const uint8 *data, uint32 len);
 /* Feed bytes received from the remote (X.25). qbit = 0 for user data
    (forwarded to DTE when in data transfer state); qbit = 1 for an
    X.29 PAD message (qualified data packet). X.29 PAD-message handling
-   is not yet wired in v1.1 -- qualified data is currently dropped on
+   is not yet wired in v1.2 -- qualified data is currently dropped on
    the floor; see deviations.txt. */
 int pad_input_remote(pad_session_t *p, const uint8 *data, uint32 len,
                      uint8 qbit);
@@ -284,7 +290,7 @@ int pad_remote_reset(pad_session_t *p, pad_reset_cause_t cause,
                      uint8 diagnostic);
 
 /* Called by the X.25 / bridge layer when the remote DTE sends an
-   interrupt packet (X.29 carries the 1-byte user-data field). v1.1:
+   interrupt packet (X.29 carries the 1-byte user-data field). v1.2:
    no DTE-visible action; logged for now. See deviations.txt. */
 int pad_remote_interrupted(pad_session_t *p, uint8 user_data);
 
@@ -297,6 +303,15 @@ void pad_set_identification(pad_session_t *p, const char *text);
 /* Install an auth callback for this session. Invoked during SELECTION
    dispatch before any X.25 call is placed. Pass NULL to remove. */
 void pad_set_auth_callback(pad_session_t *p, pad_auth_fn cb, void *ctx);
+
+/* Install a personality on the session. NULL clears it (reverts to
+   X.28-standard "default" behaviour). The personality must outlive
+   the session; built-in personalities returned by
+   personality_by_name are static and always live. If the
+   personality has a profile_overlay, it is applied immediately on
+   top of whatever profile is currently loaded. */
+struct personality;
+void pad_set_personality(pad_session_t *p, const struct personality *pers);
 
 /* Install an inbound traffic tap for this session. Pass NULL to remove. */
 void pad_set_trace_callback(pad_session_t *p, pad_trace_fn cb, void *ctx);

@@ -4,6 +4,52 @@ All notable changes to Padawan-Lite are recorded here. The format
 follows [Keep a Changelog](https://keepachangelog.com/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] — 2026-05-24
+
+### Added
+
+- **PAD personality system.** `--emulate <name>` selects a personality
+  that overrides the visible PAD surface (banner, prompt character,
+  NUI prompt, service-signal text, X.3 profile overlay) without
+  changing the X.28 state machine. The session looks and feels like
+  the named historical PSPDN PAD while the underlying core remains
+  spec-compliant. Built-in personalities:
+  - `default` — X.28-standard behaviour (the v1.1 surface);
+    selected automatically when `--emulate` is omitted.
+  - `telenet` — GTE Telenet style: `@` prompt, `ID?` NUI prompt,
+    `READY` / `BUSY` / `CONNECTED` for STAT/ENGAGED/COM,
+    Telenet-style clear-cause text. **VERIFY: data tables are a
+    best-effort reconstruction; not validated against primary-source
+    GTE Telenet operator manuals. See `src/personality.c` for the
+    explicit caveats.**
+  - `tymnet` — Tymnet style: lowercase status text, "please log in:"
+    banner, "user name:" NUI prompt, verbose clear messages. **Same
+    VERIFY caveat as telenet.**
+- New module `src/personality.c` + `include/personality.h` defining
+  the `personality_t` struct and `personality_by_name()` lookup.
+- New public API `pad_set_personality()` in `include/pad.h`.
+- 25 new unit tests in `tests/test_personality.c` cover personality
+  lookup, default passthrough, signal-text overrides, profile-overlay
+  application, prompt-character visibility through the handshake
+  path, banner override, and NULL-reverts-to-default.
+
+### Changed
+
+- `pad_session_t` gains a `personality` pointer (NULL = default
+  X.28 behaviour).
+- `pad.c::emit_prompt_if_enabled`, `emit_err`, `emit_status`,
+  `emit_connected`, the bare-ID NUI-prompt path, and
+  `pad_remote_cleared` consult the personality before falling back
+  to the X.28-standard formatters in `x28_signals.c`.
+- `telenet` and `tymnet` profile overlays now set X.3 param 6 to
+  `5` (= standard service signals + prompt bit), so the `@`
+  (Telenet) / `*` (Tymnet) prompt is visible by default without
+  the user having to issue `SET 6:5` first.
+- New helper `emit_signal_text()` in `pad.c` for personality-supplied
+  service-signal strings.
+
+[1.2.0]: https://example.invalid/padawan-lite/releases/tag/v1.2.0
+
 ## [1.1.0] — 2026-05-23
 
 ### Added
