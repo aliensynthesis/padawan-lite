@@ -5,7 +5,9 @@ For ITU-T X.28 Packet Assembler/Disassembler v1.2.
 ## Invocation
 
 ```
-padawan-lite [-c FILE] [-l PORT] [-a FILE] [-t] [-h]
+padawan-lite [-c FILE] [-l PORT] [-a FILE] [-t] [-b BPS]
+             [--trace] [--trace-prefix P] [--trace-line-mode]
+             [--pcp-port PORT] [--emulate NAME] [-h]
 ```
 
 | Flag                       | Effect                                                   |
@@ -160,10 +162,12 @@ alice
 bob
 ```
 
-`--auth FILE` makes every `SELECTION` require a matching `N<nui>` in the
-facility block. Calls without `N`, or with a `N` that's not in the
-allow-list, are rejected with `CLR NA C:0 D:0`. v1.2 does not yet
-honour session-level `ID <nui>` as a fallback — see `deviations.txt`.
+`--auth FILE` gates every `SELECTION` against the allow-list. The
+per-call `N<nui>` facility (X.28 §3.5.15.1.1) takes precedence when
+present; if the selection signal omits `N`, the session-level NUI
+set via the `ID` command (X.28 §5.2) is checked as a fallback.
+Calls with neither NUI set, or with a NUI not in the allow-list,
+are rejected with `CLR NA C:0 D:0`.
 
 ## Address map file format
 

@@ -111,7 +111,9 @@ followed by `30001<CR>` (session-level NUI).
 | `-b`, `--baud BPS`            | Throttle I/O to BPS bits/sec; `0` = off                           |
 | `--trace`                     | Log inbound traffic per session (`hexdump -C` format)             |
 | `--trace-prefix PREFIX`       | Override `--trace` filename prefix (implies `--trace`)            |
-| `--trace-line-mode`          | Consolidate CLIENT entries by CR (implies `--trace`)              |
+| `--trace-line-mode`           | Consolidate CLIENT entries by CR (implies `--trace`)              |
+| `--pcp-port PORT`             | PAD Control Protocol listener on `127.0.0.1:PORT` (`0` = off)     |
+| `--emulate NAME`              | PAD personality: `default` (X.28), `telenet`, `tymnet`            |
 | `-h`, `--help`                | Show usage                                                        |
 
 See [`QUICKREF.md`](QUICKREF.md) for the full reference card —
@@ -184,9 +186,15 @@ separate X.25↔Telnet gateway project planned alongside Padawan-Lite.
 Padawan-Lite implements the following ITU-T recommendations (PDFs in
 [`kb/`](kb/)):
 
-- **X.3** — PAD parameters (refs 1–22 of the basic set)
+- **X.3** — PAD parameters: refs 1–22 (basic set, fully behavioural)
+  and refs 23–30 (extended set, storage + range-validated; behaviour
+  inert pending future use).
 - **X.28** — DTE/PAD interface (commands, service signals, state machine)
-- **X.29** — PAD procedures over X.25 (partial; remote-PAD RPAR/RSET only)
+- **X.29** — PAD procedures: full encode/decode + dispatcher (Set,
+  Read, Set-and-Read, Parameter Indication, Invitation to Clear,
+  Indication of Break, Error). Reachable from a host application via
+  the PCP side-channel; would also flow natively over a future Q-bit
+  X.25 transport. Reselection is decoded but not yet dispatched.
 - **X.25** — interface and protocol (out of scope; replaced by the Telnet bridge)
 - **X.1**, **X.2**, **X.8** — supporting specifications
 
@@ -212,6 +220,11 @@ ok 73/73
 ==> tests/test_x3
 ok 70/70
 ```
+
+## Credits
+
+- Natural Intelligence: David Hinson
+- Artificial Intelligence: Claude Code
 
 ## Contributing
 
