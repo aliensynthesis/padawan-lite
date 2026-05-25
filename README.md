@@ -39,7 +39,9 @@ packet-switched era.
   localhost text-protocol listener that lets host applications drive
   the X.29 PAD-message layer (SET / READ / SETREAD / PAR / ICLR /
   BREAK / ERR) over a second TCP connection — no Telnet-library
-  changes required on the host side.
+  changes required on the host side. See
+  [`PCP_GUIDE.md`](PCP_GUIDE.md) for the protocol reference and a
+  worked example.
 - **PAD personality system.** `--emulate <name>` swaps the visible
   PAD surface (banner, prompt character, NUI prompt, service-signal
   text, X.3 profile overlay) to recreate historical PSPDN PAD
