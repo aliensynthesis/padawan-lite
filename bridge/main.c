@@ -65,6 +65,7 @@
 #include <sys/socket.h>
 #include <sys/ioctl.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include <fcntl.h>
 
 #define MAX_SESSIONS 16
@@ -785,6 +786,24 @@ static void accept_session(uint8 profile_id)
         return;
     }
     pad_set_identification(&u->pad, "PADAWAN-LITE v1.2");
+    /* Synthetic PAD network-address identity. Resolve the local
+       IP:port the user reached us at via getsockname; personalities
+       that opt in (Telenet) will emit it on the line after the
+       banner. Silently leave it empty on any error. */
+    {
+        struct sockaddr_in local;
+        socklen_t          llen = sizeof(local);
+        char               addr_text[64];
+        char               ip[INET_ADDRSTRLEN];
+        if (getsockname(fd, (struct sockaddr *)&local, &llen) == 0 &&
+            local.sin_family == AF_INET &&
+            inet_ntop(AF_INET, &local.sin_addr,
+                      ip, (socklen_t)sizeof(ip)) != NULL) {
+            (void)snprintf(addr_text, sizeof(addr_text), "%s:%u",
+                           ip, (unsigned)ntohs(local.sin_port));
+            pad_set_address(&u->pad, addr_text);
+        }
+    }
     if (g_auth_active) {
         pad_set_auth_callback(&u->pad, nui_check_cb, NULL);
     }

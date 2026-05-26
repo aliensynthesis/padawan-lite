@@ -58,12 +58,19 @@ static const personality_t PERSONALITY_DEFAULT = {
     NULL,           /* free_text */
     NULL,           /* engaged_text */
     NULL,           /* err_text */
+    NULL,           /* clr_confirm_text: default "CLR CONF" */
     {               /* clr_text[]: all NULL => X.28 Table 6 abbreviations */
         NULL, NULL, NULL, NULL, NULL,
         NULL, NULL, NULL, NULL, NULL,
         NULL, NULL, NULL, NULL, NULL
     },
-    NULL            /* profile_overlay: none */
+    NULL,           /* profile_overlay: none */
+    NULL,           /* command_aliases: none (X.28-standard keywords only) */
+    0,              /* emit_address: off */
+    1,              /* handshake_acks_needed: single CR */
+    0,              /* prefix_called_address_on_call_signals: off */
+    0,              /* keep_command_mode_after_recall: X.28 one-shot */
+    NULL            /* terminal_type_prompt: none */
 };
 
 /* ------------------------------------------------------------------------- */
@@ -98,6 +105,13 @@ static const char *const TELENET_CLR_TEXT[PERSONALITY_CLR_CAUSE_COUNT] = {
    profile default in place. VERIFY against original GTE doc. */
 static const uint8 TELENET_PROFILE_OVERLAY[X3_PAR_MAX + 1] = {
     0,                            /* 0  unused */
+    /* 1: Telenet user doc specifies "CR @ CR" as the escape to
+       command mode, which implies authentic Telenet set param 1 =
+       64 ('@'). Intentionally NOT applied here -- "@" is too useful
+       in modern user input (email, vi, shell paths) to commandeer
+       as PAD recall. Users wanting authentic behaviour can issue
+       SET 1:64 per session. See deviations.txt [2026-05-25] for
+       full rationale. */
     PERSONALITY_KEEP,             /* 1  recall */
     1,                            /* 2  echo on */
     2,                            /* 3  forward on CR only (VERIFY) */
@@ -124,6 +138,47 @@ static const uint8 TELENET_PROFILE_OVERLAY[X3_PAR_MAX + 1] = {
     PERSONALITY_KEEP, PERSONALITY_KEEP, PERSONALITY_KEEP, PERSONALITY_KEEP
 };
 
+/* Telenet recognised the following as synonyms for standard X.28
+   commands:
+     C / CONNECT     -> CALL (takes a selection address)
+     D / DISCONNECT  -> CLR  (bare)
+     CONT / CONTINUE -> X28_CMD_CONTINUE (Padawan-Lite no-op:
+                        returns the session from PAD command mode
+                        to data-transfer mode; see x28_signals.h)
+     HALF            -> SET 2:0 (echo off, for half-duplex terminals
+                        that already echo locally)
+     FULL            -> SET 2:1 (echo on, for full-duplex terminals)
+   Source: Telenet user documentation.
+
+   All aliases follow the same terminator rule as standard X.28
+   keywords: the keyword must be followed by whitespace or end-of-
+   input. The user writes "c 12345" (with a space) to place a call;
+   "c12345" does NOT match the alias and falls through to the bare
+   SELECTION parser (which produces an empty address).
+
+   Longer keywords are listed first as a defensive convention; the
+   matcher's terminator rule already prevents short-keyword false
+   positives (e.g. "CONTINUE" cannot match alias "CONT" because the
+   byte after CONT is 'I', alphanumeric, which rejects the match). */
+
+/* Preset SET-pair tables for the named-SET aliases. Layout is flat
+   ref,value pairs to keep the alias struct C89-friendly (no
+   designated initialisers). */
+static const uint8 TELENET_HALF_PAIRS[] = { 2, 0 }; /* SET 2:0  echo off */
+static const uint8 TELENET_FULL_PAIRS[] = { 2, 1 }; /* SET 2:1  echo on  */
+
+static const x28_command_alias_t TELENET_ALIASES[] = {
+    { "DISCONNECT", X28_CMD_CLR,       0, NULL,               0 },
+    { "CONTINUE",   X28_CMD_CONTINUE,  0, NULL,               0 },
+    { "CONNECT",    X28_CMD_SELECTION, 1, NULL,               0 },
+    { "CONT",       X28_CMD_CONTINUE,  0, NULL,               0 },
+    { "HALF",       X28_CMD_SET,       0, TELENET_HALF_PAIRS, 1 },
+    { "FULL",       X28_CMD_SET,       0, TELENET_FULL_PAIRS, 1 },
+    { "D",          X28_CMD_CLR,       0, NULL,               0 },
+    { "C",          X28_CMD_SELECTION, 1, NULL,               0 },
+    { NULL,         0,                 0, NULL,               0 }
+};
+
 static const personality_t PERSONALITY_TELENET = {
     "telenet",
     "TELENET",                  /* banner: minimal; real node-id varies */
@@ -133,6 +188,10 @@ static const personality_t PERSONALITY_TELENET = {
     "READY",                    /* FREE -> "READY" (VERIFY) */
     "BUSY",                     /* ENGAGED -> "BUSY" (VERIFY) */
     "?",                        /* ERR -> "?" (VERIFY; common 80s convention) */
+    "DISCONNECTED",             /* CLR CONF -> "DISCONNECTED" per Telenet
+                                   user doc; combined with the address-
+                                   prefix flag it renders as
+                                   "<address> DISCONNECTED" */
     {
         TELENET_CLR_TEXT[0],  TELENET_CLR_TEXT[1],  TELENET_CLR_TEXT[2],
         TELENET_CLR_TEXT[3],  TELENET_CLR_TEXT[4],  TELENET_CLR_TEXT[5],
@@ -140,7 +199,25 @@ static const personality_t PERSONALITY_TELENET = {
         TELENET_CLR_TEXT[9],  TELENET_CLR_TEXT[10], TELENET_CLR_TEXT[11],
         TELENET_CLR_TEXT[12], TELENET_CLR_TEXT[13], TELENET_CLR_TEXT[14]
     },
-    TELENET_PROFILE_OVERLAY
+    TELENET_PROFILE_OVERLAY,
+    TELENET_ALIASES,
+    1,                                 /* emit_address: show bridge addr
+                                          on the line after the banner */
+    2,                                 /* handshake_acks_needed: 2 CRs
+                                          per Telenet user-doc autobaud
+                                          convention */
+    1,                                 /* prefix_called_address_on_call_signals:
+                                          render as "<address> CONNECTED",
+                                          "<address> DISCONNECTED", etc. */
+    1,                                 /* keep_command_mode_after_recall:
+                                          multi-shot recall per Telenet
+                                          user doc; CONT/CONTINUE returns
+                                          the user to data mode */
+    "TERMINAL="                        /* terminal_type_prompt per Telenet
+                                          user doc; captured value stored
+                                          in pad_session_t.terminal_type
+                                          but not currently used to
+                                          configure X.3 params */
 };
 
 /* ------------------------------------------------------------------------- */
@@ -208,6 +285,8 @@ static const personality_t PERSONALITY_TYMNET = {
     "ready",                           /* FREE (VERIFY) */
     "in session",                      /* ENGAGED (VERIFY) */
     "command error",                   /* ERR (VERIFY) */
+    NULL,                              /* clr_confirm_text: default
+                                          "CLR CONF" */
     {
         TYMNET_CLR_TEXT[0],  TYMNET_CLR_TEXT[1],  TYMNET_CLR_TEXT[2],
         TYMNET_CLR_TEXT[3],  TYMNET_CLR_TEXT[4],  TYMNET_CLR_TEXT[5],
@@ -215,7 +294,15 @@ static const personality_t PERSONALITY_TYMNET = {
         TYMNET_CLR_TEXT[9],  TYMNET_CLR_TEXT[10], TYMNET_CLR_TEXT[11],
         TYMNET_CLR_TEXT[12], TYMNET_CLR_TEXT[13], TYMNET_CLR_TEXT[14]
     },
-    TYMNET_PROFILE_OVERLAY
+    TYMNET_PROFILE_OVERLAY,
+    NULL,                              /* command_aliases: none yet */
+    0,                                 /* emit_address: off */
+    1,                                 /* handshake_acks_needed: 1 CR */
+    0,                                 /* prefix_called_address_on_call_signals:
+                                          off */
+    0,                                 /* keep_command_mode_after_recall:
+                                          X.28 one-shot */
+    NULL                               /* terminal_type_prompt: none */
 };
 
 /* ------------------------------------------------------------------------- */

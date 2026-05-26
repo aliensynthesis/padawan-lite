@@ -272,6 +272,49 @@ static void emit_signal_text(pad_session_t *p, const char *text)
     to_dte(p, buf, pos);
 }
 
+/* Like emit_signal_text, but when the active personality opts in
+   (prefix_called_address_on_call_signals != 0) AND the session has
+   a recorded called_address, the emission renders as
+   "CR LF <called_address> SP <text> CR LF" instead of just
+   "CR LF <text> CR LF". Used for connected, clear-confirmation, and
+   clear-indication signals where Telenet prepends the address
+   ("<address> CONNECTED", "<address> DISCONNECTED"). When the
+   personality doesn't opt in, or the address is empty, the output
+   is identical to emit_signal_text. */
+static void emit_signal_text_with_addr(pad_session_t *p, const char *text)
+{
+    uint8  buf[X28_MAX_ADDRESS_LEN + 128];
+    uint32 pos = 0;
+    uint32 alen = 0;
+    uint32 tlen;
+    int    prefix;
+    if (text == NULL) return;
+    prefix = (p->personality != NULL &&
+              p->personality->prefix_called_address_on_call_signals &&
+              p->called_address[0] != '\0');
+    if (prefix) {
+        alen = (uint32)strlen(p->called_address);
+    }
+    tlen = (uint32)strlen(text);
+    /* Cap the text so the worst-case "CR LF <addr> SP <text> CR LF"
+       still fits with NUL slack. */
+    if (alen + (prefix ? 1u : 0u) + tlen + 4 > sizeof(buf)) {
+        tlen = (uint32)sizeof(buf) - 4 - alen - (prefix ? 1u : 0u);
+    }
+    buf[pos++] = IA5_CR;
+    buf[pos++] = IA5_LF;
+    if (prefix) {
+        memcpy(buf + pos, p->called_address, alen);
+        pos += alen;
+        buf[pos++] = ' ';
+    }
+    memcpy(buf + pos, text, tlen);
+    pos += tlen;
+    buf[pos++] = IA5_CR;
+    buf[pos++] = IA5_LF;
+    to_dte(p, buf, pos);
+}
+
 static void emit_err(pad_session_t *p)
 {
     uint8 buf[16];
@@ -317,6 +360,10 @@ static void emit_clr_confirm(pad_session_t *p)
     uint8 buf[16];
     int32 n;
     if (!signals_enabled(p)) return;
+    if (p->personality && p->personality->clr_confirm_text) {
+        emit_signal_text_with_addr(p, p->personality->clr_confirm_text);
+        return;
+    }
     n = x28_format_clr_confirmation(buf, sizeof(buf));
     if (n > 0) to_dte(p, buf, (uint32)n);
 }
@@ -329,7 +376,7 @@ static void emit_connected(pad_session_t *p)
     int32 n;
     if (!signals_enabled(p)) return;
     if (p->personality && p->personality->connected_text) {
-        emit_signal_text(p, p->personality->connected_text);
+        emit_signal_text_with_addr(p, p->personality->connected_text);
         return;
     }
     n = x28_format_connected(buf, sizeof(buf));
@@ -394,6 +441,31 @@ static void emit_pad_id(pad_session_t *p)
     buf[pos++] = IA5_CR;
     buf[pos++] = IA5_LF;
     to_dte(p, buf, pos);
+
+    /* Optional second line: synthetic PAD network-address identity
+       (e.g. Telenet's "215 5D" historically; here the bridge's local
+       IP:port the user dialled). Emitted only when the active
+       personality opts in (emit_address != 0) AND the bridge has
+       populated pad_address.
+
+       The banner emission above ended in CR LF, so the cursor is
+       already at the start of a fresh line. We must NOT add another
+       leading CR LF here -- doing so would render an empty line
+       between the banner and the address. Emit only the text plus a
+       trailing CR LF (the trailing CR LF positions the cursor for
+       the prompt that follows). */
+    if (p->personality != NULL && p->personality->emit_address) {
+        uint32 addr_len = (uint32)strlen(p->pad_address);
+        if (addr_len > 0) {
+            uint8 abuf[PAD_ADDRESS_MAX + 2];
+            uint32 apos = 0;
+            memcpy(abuf + apos, p->pad_address, addr_len);
+            apos += addr_len;
+            abuf[apos++] = IA5_CR;
+            abuf[apos++] = IA5_LF;
+            to_dte(p, abuf, apos);
+        }
+    }
 }
 
 /* §3.5.25 line deleted PAD service signal, controlled by param 19. */
@@ -526,6 +598,15 @@ static void dispatch_command(pad_session_t *p, const x28_command_t *cmd)
             x25_clear(&p->call, 0, 0);
             emit_clr_confirm(p);
             p->state = PAD_STATE_PAD_WAITING;
+            /* X.28 §3.5.23: PAD is command-ready again; emit the
+               prompt so the user has the same visual cue they get
+               on every other transition into PAD_WAITING (handshake
+               completion, post-command, pad_remote_cleared). Skipped
+               by the post-dispatch transition logic in
+               feed_command_byte because we set state directly here
+               and that logic only fires when state is still
+               PAD_COMMAND or WAITING_FOR_CMD on return. */
+            emit_prompt_if_enabled(p);
         } else {
             /* §3.2.3.1.3: clear request in PAD waiting state is invalid. */
             emit_err(p);
@@ -568,7 +649,19 @@ static void dispatch_command(pad_session_t *p, const x28_command_t *cmd)
                 if (n > 0) to_dte(p, buf, (uint32)n);
             }
         } else {
-            int rc = x25_call(&p->call, cmd->address);
+            int rc;
+            /* Capture the called address on the session so personality-
+               controlled service signals can render as "<address> CONNECTED"
+               / "<address> DISCONNECTED" / "<address> BUSY" etc. (Telenet
+               style). Truncated to X28_MAX_ADDRESS_LEN; cleared if the
+               SELECTION carried no address. */
+            {
+                uint8 al = cmd->address_len;
+                if (al > X28_MAX_ADDRESS_LEN) al = X28_MAX_ADDRESS_LEN;
+                memcpy(p->called_address, cmd->address, al);
+                p->called_address[al] = '\0';
+            }
+            rc = x25_call(&p->call, cmd->address);
             if (rc == X25_OK) {
                 /* Synchronous success - skip CONN_IN_PROGRESS straight to
                    data transfer and emit the §3.5.21 connected signal. */
@@ -700,6 +793,26 @@ static void dispatch_command(pad_session_t *p, const x28_command_t *cmd)
         break;
     }
 
+    case X28_CMD_CONTINUE:
+        /* Personality-only command (Telenet's "CONTINUE" / "CONT").
+           Returns the session from PAD command mode to data-transfer
+           mode when a call is up. Explicitly drives the transition
+           rather than relying on the post-dispatch state machinery,
+           because under personalities that opt into multi-shot
+           recall (keep_command_mode_after_recall) the post-dispatch
+           logic deliberately does NOT auto-return -- CONTINUE is the
+           only way back. Under personalities with the X.28 default
+           one-shot recall, the explicit transition here is harmless:
+           the post-dispatch check sees state == DATA_TRANSFER (no
+           match) and leaves it alone. */
+        if (p->call.connected) {
+            p->state = PAD_STATE_DATA_TRANSFER;
+            p->idle_ticks = 0;
+            drain_remote_queue(p);
+            p->pre_recall_state = PAD_STATE_PAD_WAITING;
+        }
+        break;
+
     case X28_CMD_UNKNOWN:
     default:
         emit_err(p);
@@ -779,8 +892,11 @@ static void feed_command_byte(pad_session_t *p, uint8 c)
             emit_ack(p);
         } else if (p->edit_len > 0) {
             x28_command_t cmd;
+            const x28_command_alias_t *aliases =
+                (p->personality != NULL) ?
+                    p->personality->command_aliases : NULL;
             int rc = x28_parse_command((const char *)p->edit_buf,
-                                       p->edit_len, &cmd);
+                                       p->edit_len, aliases, &cmd);
             if (rc == X28_PARSE_OK) {
                 dispatch_command(p, &cmd);
             } else {
@@ -795,22 +911,38 @@ static void feed_command_byte(pad_session_t *p, uint8 c)
             p->state = PAD_STATE_PAD_WAITING;
             emit_prompt_if_enabled(p);
         } else if (p->state == PAD_STATE_WAITING_FOR_CMD) {
-            /* §3.2.1.5: return to whichever state the recall escaped
-               from (DATA_TRANSFER if the call is up, CONN_IN_PROGRESS
-               if the call is still being set up). Drop to PAD_WAITING
-               only if the call has gone away in the meantime (e.g. CLR
-               while in DATA_TRANSFER). */
-            if (p->call.connected) {
+            /* §3.2.1.5: by default, the next PAD command after a
+               recall auto-returns the session to whichever state the
+               recall escaped from. Personalities can opt into a
+               multi-shot recall (keep_command_mode_after_recall != 0)
+               where the user issues several commands before going
+               back -- the explicit CONTINUE / CONT command makes the
+               return trip. Drop to PAD_WAITING only if the call has
+               gone away in the meantime (e.g. CLR while in
+               DATA_TRANSFER). */
+            int multi_command_mode =
+                (p->personality != NULL &&
+                 p->personality->keep_command_mode_after_recall &&
+                 p->call.connected);
+            if (multi_command_mode) {
+                /* Stay in WAITING_FOR_CMD and prompt for the next
+                   command. State, pre_recall_state, and the call
+                   pointer are all preserved so the eventual CONTINUE
+                   can still find its way back to DATA_TRANSFER. */
+                emit_prompt_if_enabled(p);
+            } else if (p->call.connected) {
                 p->state = PAD_STATE_DATA_TRANSFER;
                 p->idle_ticks = 0;
                 drain_remote_queue(p);
+                p->pre_recall_state = PAD_STATE_PAD_WAITING;
             } else if (p->pre_recall_state == PAD_STATE_CONN_IN_PROGRESS) {
                 p->state = PAD_STATE_CONN_IN_PROGRESS;
+                p->pre_recall_state = PAD_STATE_PAD_WAITING;
             } else {
                 p->state = PAD_STATE_PAD_WAITING;
                 emit_prompt_if_enabled(p);
+                p->pre_recall_state = PAD_STATE_PAD_WAITING;
             }
-            p->pre_recall_state = PAD_STATE_PAD_WAITING; /* reset */
         }
         return;
     }
@@ -900,8 +1032,44 @@ static void complete_handshake(pad_session_t *p)
     p->state = PAD_STATE_DTE_WAITING;
     p->state = PAD_STATE_SERVICE_READY;
     emit_pad_id(p);
+    /* Personality opt-in: emit a terminal-type prompt (e.g. Telenet's
+       "TERMINAL=") and capture the user's free-form response into
+       p->terminal_type before continuing to the regular @ prompt.
+       The prompt text is emitted bare -- no surrounding format
+       effectors -- because emit_pad_id has already left the cursor
+       at the start of a fresh line. */
+    if (p->personality != NULL &&
+        p->personality->terminal_type_prompt != NULL) {
+        const char *prompt = p->personality->terminal_type_prompt;
+        uint32 plen = (uint32)strlen(prompt);
+        if (plen > 0) to_dte(p, (const uint8 *)prompt, plen);
+        p->terminal_type[0] = '\0';
+        p->terminal_type_len = 0;
+        p->state = PAD_STATE_AWAITING_TERMINAL_TYPE;
+        return;
+    }
     p->state = PAD_STATE_PAD_WAITING;
     emit_prompt_if_enabled(p);
+}
+
+/* Feed one byte while collecting a terminal-type response. Accumulates
+   free-form into p->terminal_type (echoed) until CR, at which point we
+   advance to PAD_WAITING and emit the regular @ prompt. Bytes beyond
+   PAD_TERMINAL_TYPE_MAX are silently dropped (still echoed, so the
+   user sees them, but not stored). */
+static void feed_terminal_type_byte(pad_session_t *p, uint8 c)
+{
+    if (c == IA5_CR) {
+        p->terminal_type[p->terminal_type_len] = '\0';
+        p->state = PAD_STATE_PAD_WAITING;
+        emit_prompt_if_enabled(p);
+        return;
+    }
+    /* Echo every accepted byte so the user sees what they're typing. */
+    p->emit_dte(p->ctx, &c, 1);
+    if (p->terminal_type_len < PAD_TERMINAL_TYPE_MAX) {
+        p->terminal_type[p->terminal_type_len++] = (char)c;
+    }
 }
 
 /* Feed one byte while in ACTIVE_LINK or SERVICE_REQUEST. The byte is
@@ -909,23 +1077,41 @@ static void complete_handshake(pad_session_t *p)
    X.28 §2.2 envisages the PAD using the byte timing and values to
    auto-detect line speed / code / parity; v1.2 has neither capability
    (we're on a logical line) so the bytes are simply discarded apart
-   from CR, which signals end of the service request. */
+   from CR, which signals end of the service request.
+
+   If the active personality opts into the historical two-CR
+   handshake (handshake_acks_needed >= 2), the first CR holds the
+   session in DTE_WAITING (silent, mirrors the autobaud ack); the
+   second CR -- handled in pad_input_dte's DTE_WAITING branch --
+   runs complete_handshake. Default behaviour is the single-CR
+   collapse. */
 static void feed_service_request_byte(pad_session_t *p, uint8 c)
 {
     if (p->state == PAD_STATE_ACTIVE_LINK) {
         p->state = PAD_STATE_SERVICE_REQUEST;
     }
     if (c == 0x0D) {
-        complete_handshake(p);
+        if (p->personality != NULL &&
+            p->personality->handshake_acks_needed >= 2) {
+            p->state = PAD_STATE_DTE_WAITING;
+        } else {
+            complete_handshake(p);
+        }
     }
 }
 
 static void feed_data_byte(pad_session_t *p, uint8 c)
 {
-    /* X.28 4.9 / X.3 3.1: PAD recall escapes to PAD command entry. */
+    /* X.28 4.9 / X.3 3.1: PAD recall escapes to PAD command entry.
+       The PAD is now ready to accept a command, so emit the PAD-
+       ready prompt (X.28 §3.5.23) so the user has the same visual
+       cue they get on every other transition into a command-ready
+       state. Gated internally by signals_enabled + X.3 param 6
+       bit 2, so a user who has turned the prompt off doesn't see it. */
     if (is_recall_char(p, c)) {
         p->pre_recall_state = PAD_STATE_DATA_TRANSFER;
         p->state = PAD_STATE_WAITING_FOR_CMD;
+        emit_prompt_if_enabled(p);
         return;
     }
 
@@ -1067,6 +1253,19 @@ void pad_set_identification(pad_session_t *p, const char *text)
     p->pad_id_text[n] = '\0';
 }
 
+void pad_set_address(pad_session_t *p, const char *text)
+{
+    uint32 n;
+    if (text == NULL) {
+        p->pad_address[0] = '\0';
+        return;
+    }
+    n = (uint32)strlen(text);
+    if (n > PAD_ADDRESS_MAX) n = PAD_ADDRESS_MAX;
+    memcpy(p->pad_address, text, n);
+    p->pad_address[n] = '\0';
+}
+
 int pad_flush(pad_session_t *p)
 {
     if (p->state != PAD_STATE_DATA_TRANSFER) return 0;
@@ -1116,19 +1315,31 @@ int pad_remote_cleared(pad_session_t *p, pad_clear_cause_t cause,
         uint8       buf[64];
         const char *text = NULL;
         int32       n;
+        int         personality_override;
         /* Personality may override the per-cause abbreviation. Bounds-
            check against PERSONALITY_CLR_CAUSE_COUNT since pad_clear_cause_t
            is an int. */
-        if (p->personality &&
-            (uint32)cause < PERSONALITY_CLR_CAUSE_COUNT &&
-            p->personality->clr_text[cause] != NULL) {
+        personality_override = (p->personality != NULL &&
+                                (uint32)cause < PERSONALITY_CLR_CAUSE_COUNT &&
+                                p->personality->clr_text[cause] != NULL);
+        if (personality_override) {
             text = p->personality->clr_text[cause];
         } else {
             text = clear_cause_text(cause);
         }
-        n = x28_format_clr_indication(text, cause_code, diagnostic,
-                                      buf, sizeof(buf));
-        if (n > 0) to_dte(p, buf, (uint32)n);
+        /* When the personality both supplies its own cause text AND
+           opts into prefixing the called address, render as
+           "<address> <text>" (Telenet style) instead of the X.28-
+           standard "CLR <text> C:n D:n". Otherwise fall through to
+           the standard formatter. */
+        if (personality_override &&
+            p->personality->prefix_called_address_on_call_signals) {
+            emit_signal_text_with_addr(p, text);
+        } else {
+            n = x28_format_clr_indication(text, cause_code, diagnostic,
+                                          buf, sizeof(buf));
+            if (n > 0) to_dte(p, buf, (uint32)n);
+        }
     }
     p->call.connected = 0;
     p->call.call_id = 0;
@@ -1246,17 +1457,32 @@ int pad_input_dte(pad_session_t *p, const uint8 *data, uint32 len)
                 p->pre_recall_state = PAD_STATE_CONN_IN_PROGRESS;
                 p->state = PAD_STATE_WAITING_FOR_CMD;
                 p->pending_dte_len = 0;
+                /* X.28 §3.5.23: prompt signals readiness for a PAD
+                   command, which we now are. Same rationale as the
+                   DATA_TRANSFER recall path in feed_data_byte. */
+                emit_prompt_if_enabled(p);
             } else if (p->pending_dte_len < PAD_PENDING_SIZE) {
                 p->pending_dte[p->pending_dte_len++] = c;
             }
             break;
         case PAD_STATE_DTE_WAITING:
+            /* Reached only when the active personality opts into the
+               two-CR handshake (handshake_acks_needed >= 2) and the
+               first CR has already been received. A second CR
+               completes the handshake (emit banner + prompt, then
+               PAD_WAITING). Any other byte is discarded -- the user
+               is still in the service-request phase. */
+            if (c == 0x0D) {
+                complete_handshake(p);
+            }
+            break;
+        case PAD_STATE_AWAITING_TERMINAL_TYPE:
+            feed_terminal_type_byte(p, c);
+            break;
         case PAD_STATE_SERVICE_READY:
-            /* Transient pre-PAD-waiting states; bytes arriving during them
-               would be discarded by the spec. In v1.2 these states are not
-               held across input boundaries (complete_handshake runs to
-               completion in one call), so this branch is unreachable in
-               practice. */
+            /* Transient pre-PAD-waiting state held only inside
+               complete_handshake -- runs to completion in one call,
+               so this branch is unreachable in practice. */
             break;
         default:
             break;

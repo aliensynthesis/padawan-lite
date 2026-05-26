@@ -611,3 +611,144 @@ Each item names the spec clauses that govern it.
       forbidden-char rule, etc.)
     - 'H' field hex-pair decoding (captured verbatim, not decoded
       to bytes).
+
+[2026-05-25] src/personality.c - Telenet personality recall character (param 1)
+  Telenet documentation specifies that users return to Telenet command
+  mode by typing "CR @ CR". Per X.28 §3.2.1.5 / X.3 §3.1.1 the active
+  byte in that sequence is "@" (IA5 0x40); the framing CRs are
+  user-side cleanup. This means authentic Telenet set X.3 param 1
+  (PAD recall character) to 64.
+
+  The TELENET_PROFILE_OVERLAY in src/personality.c intentionally does
+  NOT set param 1 to 64. It leaves the simple-profile default
+  (param 1 = 1, DLE / Ctrl-P) so that "@" can flow through to the
+  host as a literal character. Reason: "@" is ubiquitous in modern
+  computing (email addresses, vi commands, shell paths). Faithful
+  Telenet recall would intercept every "@" typed in data-transfer
+  state. Real Telenet users worked around this with "SET 1:0" or
+  "SET 1:16" mid-session; v1.3 chooses modern convenience over
+  historical faithfulness for this single parameter.
+
+  Users wanting authentic Telenet recall behaviour can issue
+  "SET 1:64" once the session is up; the change is per-session and
+  does not require rebuilding.
+
+[2026-05-26] include/x28_signals.h, src/x28_signals.c - personality
+  command-alias mechanism (parser extension)
+  x28_parse_command() now accepts an optional NULL-terminated array
+  of x28_command_alias_t. Each entry maps a personality-specific
+  keyword (case-insensitive) to a standard X28_CMD_* type, optionally
+  with a preset (ref,value) pair list (for "named-SET" aliases) and
+  an address-taking flag (mapped to parse_selection). Aliases are
+  matched AFTER the X.28-standard keywords and BEFORE the SELECTION
+  fallthrough -- a personality can ADD synonyms but never override
+  standard command names. Terminator rule mirrors the standard
+  keywords: the byte after the keyword must be non-alphanumeric
+  (whitespace, CR, or end-of-input).
+
+[2026-05-26] src/personality.c - Telenet personality command synonyms
+  Telenet user documentation specifies several command synonyms
+  beyond the X.28-standard keyword set. The Telenet personality's
+  TELENET_ALIASES table publishes:
+    C / CONNECT     -> CALL (places a virtual call; takes address)
+    D / DISCONNECT  -> CLR  (clears the active call)
+    CONT / CONTINUE -> X28_CMD_CONTINUE (return-to-data; see below)
+    HALF            -> SET 2:0 (echo off; half-duplex terminals)
+    FULL            -> SET 2:1 (echo on;  full-duplex terminals)
+  All aliases require whitespace (or end-of-input) after the keyword
+  per Telenet user-doc syntax; concatenated forms like "c12345" do
+  NOT match (per user clarification). Source: Telenet user
+  documentation. Only the Telenet personality enables these; default
+  and Tymnet keep the X.28-standard keyword set only.
+
+[2026-05-26] src/pad.c - X28_CMD_CONTINUE (Padawan-Lite enum extension)
+  New PAD command type reachable only via personality aliases (no
+  standard X.28 keyword maps to it). When dispatched with a connected
+  call, transitions the session from PAD command state to
+  DATA_TRANSFER. Backs Telenet's "CONT" / "CONTINUE" return-to-data
+  command. Harmless no-op when no call is up.
+
+[2026-05-26] src/pad.c - PAD recall now emits prompt; CLR confirm
+  emits prompt (X.28 compliance fix)
+  X.28 §3.5.23 defines the PAD-ready prompt as the signal that the
+  PAD is ready for a command. Previously, transitions into
+  WAITING_FOR_CMD via PAD recall (DATA_TRANSFER -> WAITING_FOR_CMD
+  in feed_data_byte, and CONN_IN_PROGRESS -> WAITING_FOR_CMD in
+  pad_input_dte) silently changed state without emitting the prompt,
+  forcing users to type a command blind. Similarly the X28_CMD_CLR
+  success path set state to PAD_WAITING without emitting a prompt.
+  Both paths now call emit_prompt_if_enabled. Universal fix (not
+  personality-gated); param 6's prompt bit still gates the actual
+  emission.
+
+[2026-05-26] src/personality.c - Telenet personality address-line
+  identity after banner
+  The PAD identification handshake (X.28 §3.5.18) emits the personality
+  banner ("TELENET") followed, when the active personality sets
+  emit_address = 1 AND the bridge has populated pad_address, by a
+  second line carrying the synthetic PAD network address (typically
+  the bridge's local listen IP:port, e.g. "127.0.0.1:30099").
+  Mirrors how a real Telenet PAD identified itself by its own
+  area-and-node address on the line after the banner. Bridge sets
+  pad_address per TCP accept via getsockname; stdin sessions leave
+  it empty so the second line is suppressed. Telenet opts in;
+  default and Tymnet do not.
+
+[2026-05-26] src/personality.c - Telenet personality two-CR handshake
+  Telenet user documentation specifies that users complete the
+  handshake with TWO carriage returns. This reflects the original
+  autobaud convention: the first CR let the PAD measure terminal
+  bit timing; the second CR confirmed the link. Implemented via
+  personality_t.handshake_acks_needed: 1 = single-CR (default,
+  Tymnet), 2 = two-CR (Telenet). In two-CR mode the first CR
+  silently transitions ACTIVE_LINK -> DTE_WAITING; the second CR
+  runs complete_handshake to emit the banner et al. Over TCP there
+  is no actual autobaud, so the first CR is purely cosmetic but
+  matches the documented user experience.
+
+[2026-05-26] src/personality.c - Telenet personality address prefix
+  on connect/disconnect/clear signals
+  Per Telenet user documentation, the connected signal renders as
+  "<address> CONNECTED" and the user-initiated clear confirmation as
+  "<address> DISCONNECTED", where <address> is the called address
+  from the most-recent SELECTION command. Remote-initiated clears
+  with a personality-supplied cause text are also prefixed
+  ("<address> BUSY", etc.). The standard X.28 "COM" and "CLR ... C:n
+  D:n" formats are entirely replaced when the prefix flag is on.
+  Implemented via personality_t.prefix_called_address_on_call_signals
+  + per-session pad_session_t.called_address (captured before
+  x25_call in the SELECTION dispatch). Telenet opts in; default and
+  Tymnet retain X.28-standard formats.
+
+[2026-05-26] src/personality.c - Telenet personality multi-shot PAD
+  recall
+  X.28 §3.2.1.5 specifies one-shot PAD recall: after any command
+  issued from WAITING_FOR_CMD, the PAD auto-returns to DATA_TRANSFER
+  if a call is up. Telenet documentation describes multi-shot
+  behaviour: the user can issue several commands before returning,
+  with an explicit CONT / CONTINUE command to make the return.
+  Implemented via personality_t.keep_command_mode_after_recall:
+  0 = X.28-standard one-shot (default, Tymnet), 1 = multi-shot
+  (Telenet). In multi-shot mode the post-dispatch logic in
+  feed_command_byte stays in WAITING_FOR_CMD after each command
+  and re-emits the prompt; the X28_CMD_CONTINUE handler explicitly
+  drives the WAITING_FOR_CMD -> DATA_TRANSFER transition (under
+  one-shot mode the same explicit transition is redundant but
+  harmless).
+
+[2026-05-26] src/personality.c - Telenet personality "TERMINAL="
+  terminal-type prompt
+  Telenet documentation specifies that after the banner+address
+  emission the PAD emits a "TERMINAL=" prompt and collects the
+  user's terminal-type response (free-form, until CR) before
+  emitting the regular @ prompt. Implemented via
+  personality_t.terminal_type_prompt (NULL = none, default and
+  Tymnet behaviour) and a new PAD state
+  PAD_STATE_AWAITING_TERMINAL_TYPE. Captured value is stored in
+  pad_session_t.terminal_type but NOT currently used to configure
+  X.3 parameters or written into the SELECTION CUD field --
+  informational only. A future enhancement could add a
+  terminal-type -> X.3 profile mapping table once authoritative
+  Telenet mapping data is available; bit-for-bit faithful mappings
+  (D1, A1, T1...) would require primary-source manuals. Empty
+  response (just CR) is acceptable and stored as the empty string.

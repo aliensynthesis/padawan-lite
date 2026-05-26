@@ -369,7 +369,30 @@ static int capture_string_arg(const char *s, uint32 i, uint32 len,
 
 /* --- top-level parser --------------------------------------------------- */
 
-int x28_parse_command(const char *input, uint32 len, x28_command_t *out)
+/* Match a personality-supplied alias keyword at position i. Returns
+   the position just past the keyword on a successful match, or 0
+   (false) on no match. Matching is case-insensitive and follows the
+   same terminator rule as match_kw: the byte after the keyword (if
+   any) must be non-alphanumeric, so e.g. "CONNECTOR" does not match
+   alias "CONNECT". */
+static uint32 match_alias(const char *s, uint32 i, uint32 len,
+                          const x28_command_alias_t *a)
+{
+    uint32 klen = 0;
+    uint32 j;
+    while (a->keyword[klen] != '\0') klen++;
+    if (i + klen > len) return 0;
+    for (j = 0; j < klen; j++) {
+        if (to_upper((uint8)s[i + j]) != (uint8)a->keyword[j]) return 0;
+    }
+    if (i + klen == len) return i + klen;
+    if (is_letter_or_digit((uint8)s[i + klen])) return 0;
+    return i + klen;
+}
+
+int x28_parse_command(const char *input, uint32 len,
+                      const x28_command_alias_t *aliases,
+                      x28_command_t *out)
 {
     uint32 i = 0;
 
@@ -547,6 +570,40 @@ int x28_parse_command(const char *input, uint32 len, x28_command_t *out)
     if (match_kw(input, i, len, "ID", 2)) {
         out->type = X28_CMD_NUI_ON;
         return capture_string_arg(input, i + 2, len, out);
+    }
+
+    /* Personality command-keyword aliases (e.g. Telenet "C"/"CONNECT"/
+       "D"/"DISCONNECT"). Checked AFTER the built-in X.28 keywords so a
+       personality can add synonyms but never override standard
+       commands. Checked BEFORE the SELECTION fallthrough so an alias
+       takes priority over the implicit selection-signal interpretation
+       (which would otherwise eat the first byte as a facility letter). */
+    if (aliases != NULL) {
+        uint32 k;
+        for (k = 0; aliases[k].keyword != NULL; k++) {
+            uint32 next = match_alias(input, i, len, &aliases[k]);
+            if (next != 0) {
+                out->type = aliases[k].cmd_type;
+                if (aliases[k].preset_pairs != NULL) {
+                    uint8 n = aliases[k].preset_pair_count;
+                    uint8 j;
+                    if (n > X28_MAX_PARAMS) n = X28_MAX_PARAMS;
+                    for (j = 0; j < n; j++) {
+                        out->params[j].ref     =
+                            aliases[k].preset_pairs[(uint32)j * 2];
+                        out->params[j].value   =
+                            aliases[k].preset_pairs[(uint32)j * 2 + 1];
+                        out->params[j].invalid = 0;
+                    }
+                    out->param_count = n;
+                }
+                if (aliases[k].takes_address) {
+                    next = skip_ignored(input, next, len);
+                    return parse_selection(input, next, len, out);
+                }
+                return X28_PARSE_OK;
+            }
+        }
     }
 
     /* Otherwise treat as a selection PAD command signal (§3.5.15) and

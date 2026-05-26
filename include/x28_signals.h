@@ -63,7 +63,16 @@ typedef enum {
     X28_CMD_NUI_ON,     /* ID <NUI string>  (§5.2) */
     X28_CMD_NUI_OFF,    /* IDOFF (§5.2) */
     X28_CMD_LANG,       /* LANG / LANGUAGE <language string> (§5.3) */
-    X28_CMD_HELP        /* HELP [<subject>] (§5.4) */
+    X28_CMD_HELP,       /* HELP [<subject>] (§5.4) */
+    /* Padawan-Lite extension: explicit no-op command used by
+       personalities (e.g. Telenet's "CONTINUE" / "CONT") that need a
+       named keyword to return the user from PAD command state back to
+       data-transfer state. The state-machine transition at the end of
+       feed_command_byte already returns to DATA_TRANSFER when a call
+       is up, so the dispatcher just consumes this command silently.
+       Not exposed by the X.28-standard parser; reachable only via a
+       personality command-alias table. */
+    X28_CMD_CONTINUE
 } x28_cmd_type_t;
 
 typedef struct {
@@ -113,10 +122,52 @@ typedef struct {
 #define X28_PARSE_ERR_BAD_VALUE  4
 #define X28_PARSE_ERR_OVERFLOW   5
 
+/* Optional per-personality command-keyword alias. Lets a personality
+   add command synonyms (e.g. Telenet's "C"/"CONNECT" for CALL,
+   "D"/"DISCONNECT" for CLR) without modifying the X.28 command set.
+
+   - keyword is uppercase ASCII; matching is case-insensitive.
+   - cmd_type is the X28_CMD_* enum value the alias dispatches to.
+   - takes_address: 1 means a selection-style address argument follows
+     the keyword (and is fed to the same parser as CALL's address);
+     0 means the alias is a bare command with no argument.
+   - preset_pairs: optional pointer to a flat array of ref/value bytes
+     (laid out ref0, val0, ref1, val1, ...). When non-NULL the parser
+     pre-populates out->params[] with these pairs before returning.
+     Useful for named-SET aliases (e.g. Telenet's "HALF" = SET 2:0).
+     NULL means no preset args. Only meaningful for X28_CMD_SET
+     dispatch; ignored for other cmd_type values.
+   - preset_pair_count: number of (ref,value) pairs in preset_pairs
+     (so the preset_pairs array holds 2 * preset_pair_count bytes).
+     Bounded by X28_MAX_PARAMS.
+
+   Matching follows the same terminator rule as the built-in keywords:
+   the byte after the keyword (if any) must be non-alphanumeric, so
+   e.g. "CONNECT 12345" matches but "CONNECT12345" does not. Use a
+   space (or tab) to separate the keyword from its address argument.
+
+   Alias matching is checked AFTER the built-in keywords and BEFORE
+   the SELECTION fallthrough, so a personality may add new synonyms
+   but cannot override the X.28-standard command names. The array is
+   terminated by an entry with keyword == NULL. */
+typedef struct {
+    const char  *keyword;
+    uint8        cmd_type;
+    uint8        takes_address;
+    const uint8 *preset_pairs;
+    uint8        preset_pair_count;
+} x28_command_alias_t;
+
 /* Parse a PAD command signal (X.28 clause 3.5). Trailing CR (0/13) or
    PLUS (2/11) delimiter is accepted but not required. Returns X28_PARSE_OK
-   or one of the error codes. */
-int x28_parse_command(const char *input, uint32 len, x28_command_t *out);
+   or one of the error codes.
+
+   aliases is an optional NULL-terminated array of personality-supplied
+   command synonyms (see x28_command_alias_t); pass NULL when no
+   personality is active. */
+int x28_parse_command(const char *input, uint32 len,
+                      const x28_command_alias_t *aliases,
+                      x28_command_t *out);
 
 /* PAD service signal formatters (X.28 clause 3.5).
    Each writes into buf and returns the number of bytes written, or a

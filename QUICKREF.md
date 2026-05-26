@@ -22,6 +22,16 @@ padawan-lite [-c FILE] [-l PORT] [-a FILE] [-t] [-b BPS]
 | `--trace-line-mode`        | CLIENT entries flush on CR; SERVICE pairs with each line |
 | `--pcp-port PORT`          | PAD Control Protocol listener on `127.0.0.1:PORT`        |
 | `--emulate NAME`           | PAD personality: `default` (X.28), `telenet`, `tymnet`   |
+
+Under `--emulate telenet`, the PAD also recognises these synonyms:
+`CONNECT`/`C` for CALL, `DISCONNECT`/`D` for CLR, `CONT`/`CONTINUE`
+to return from PAD command mode to data mode after recall (Telenet's
+multi-shot recall keeps you in command mode until you issue this),
+`HALF` for `SET 2:0` (echo off; half-duplex terminals), `FULL` for
+`SET 2:1` (echo on). Handshake requires two CRs; banner is followed
+by an `<address>` line and a `TERMINAL=` prompt. Call signals render
+as `<address> CONNECTED` / `<address> DISCONNECTED`. See
+[`deviations.txt`](deviations.txt) for the full list and rationale.
 | `-h`, `--help`             | Show usage                                               |
 
 Default (no flags): one session bound to stdin/stdout, simple profile,

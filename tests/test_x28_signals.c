@@ -34,7 +34,14 @@
 
 static int parse(const char *s, x28_command_t *out)
 {
-    return x28_parse_command(s, (uint32)strlen(s), out);
+    return x28_parse_command(s, (uint32)strlen(s), NULL, out);
+}
+
+static int parse_with_aliases(const char *s,
+                              const x28_command_alias_t *aliases,
+                              x28_command_t *out)
+{
+    return x28_parse_command(s, (uint32)strlen(s), aliases, out);
 }
 
 /* ---- command parsing -------------------------------------------------- */
@@ -494,6 +501,161 @@ static void test_parse_extended_aliases(void)
     ASSERT_TRUE(strcmp(cmd.address, "12345") == 0);
 }
 
+static void test_personality_aliases_mechanism(void)
+{
+    /* Parser-level test of the personality command-alias hook. Uses a
+       throwaway alias table to exercise match rules independently of
+       any specific personality. Aliases follow the same terminator
+       rule as built-in keywords: the byte after the keyword must be
+       non-alphanumeric (or end-of-input). */
+    static const x28_command_alias_t aliases[] = {
+        { "CONNECT",    X28_CMD_SELECTION, 1, NULL, 0 },  /* takes_address */
+        { "C",          X28_CMD_SELECTION, 1, NULL, 0 },  /* takes_address */
+        { "DISCONNECT", X28_CMD_CLR,       0, NULL, 0 },  /* bare */
+        { "D",          X28_CMD_CLR,       0, NULL, 0 },  /* bare */
+        { NULL,         0,                 0, NULL, 0 }
+    };
+    x28_command_t cmd;
+
+    /* Whitespace-separated form: keyword followed by an address. */
+    ASSERT_EQ_INT(parse_with_aliases("c 12345", aliases, &cmd), X28_PARSE_OK);
+    ASSERT_EQ_INT(cmd.type, X28_CMD_SELECTION);
+    ASSERT_TRUE(strcmp(cmd.address, "12345") == 0);
+
+    ASSERT_EQ_INT(parse_with_aliases("CONNECT 12345", aliases, &cmd),
+                  X28_PARSE_OK);
+    ASSERT_EQ_INT(cmd.type, X28_CMD_SELECTION);
+    ASSERT_TRUE(strcmp(cmd.address, "12345") == 0);
+
+    /* No space => no alias match. "C12345" must NOT be parsed as
+       alias C + address 12345; it falls through to bare SELECTION
+       (whose address scanner stops at 'C', leaving an empty address). */
+    ASSERT_EQ_INT(parse_with_aliases("C12345", aliases, &cmd), X28_PARSE_OK);
+    ASSERT_EQ_INT(cmd.type, X28_CMD_SELECTION);
+    ASSERT_EQ_INT(cmd.address_len, 0);
+
+    /* Same for the longer keyword: "CONNECT12345" must NOT match. */
+    ASSERT_EQ_INT(parse_with_aliases("CONNECT12345", aliases, &cmd),
+                  X28_PARSE_OK);
+    ASSERT_EQ_INT(cmd.type, X28_CMD_SELECTION);
+    ASSERT_EQ_INT(cmd.address_len, 0);
+
+    /* Longest-match: "CONNECT 12345" is matched as the full keyword,
+       not as alias "C" followed by garbage "ONNECT 12345". */
+    ASSERT_EQ_INT(parse_with_aliases("CONNECT 12345", aliases, &cmd),
+                  X28_PARSE_OK);
+    ASSERT_EQ_INT(cmd.type, X28_CMD_SELECTION);
+    ASSERT_TRUE(strcmp(cmd.address, "12345") == 0);
+
+    /* Bare aliases (takes_address=0) work alone and dispatch to CLR. */
+    ASSERT_EQ_INT(parse_with_aliases("D",          aliases, &cmd), X28_PARSE_OK);
+    ASSERT_EQ_INT(cmd.type, X28_CMD_CLR);
+    ASSERT_EQ_INT(parse_with_aliases("DISCONNECT", aliases, &cmd), X28_PARSE_OK);
+    ASSERT_EQ_INT(cmd.type, X28_CMD_CLR);
+    ASSERT_EQ_INT(parse_with_aliases("d",          aliases, &cmd), X28_PARSE_OK);
+    ASSERT_EQ_INT(cmd.type, X28_CMD_CLR);
+
+    /* Bare alias rejects an alphanumeric suffix: "D12345" and
+       "DISCONNECTOR" must NOT match -- they fall through to SELECTION. */
+    ASSERT_EQ_INT(parse_with_aliases("D12345", aliases, &cmd), X28_PARSE_OK);
+    ASSERT_EQ_INT(cmd.type, X28_CMD_SELECTION);
+    ASSERT_EQ_INT(parse_with_aliases("DISCONNECTOR", aliases, &cmd),
+                  X28_PARSE_OK);
+    ASSERT_EQ_INT(cmd.type, X28_CMD_SELECTION);
+
+    /* Standard X.28 keywords still win over aliases: a "CLR" command
+       parses as X28_CMD_CLR via the built-in keyword, not via alias D
+       or DISCONNECT. */
+    ASSERT_EQ_INT(parse_with_aliases("CLR", aliases, &cmd), X28_PARSE_OK);
+    ASSERT_EQ_INT(cmd.type, X28_CMD_CLR);
+
+    /* Passing NULL aliases disables the feature entirely. */
+    ASSERT_EQ_INT(parse_with_aliases("c 12345", NULL, &cmd), X28_PARSE_OK);
+    ASSERT_EQ_INT(cmd.type, X28_CMD_SELECTION);
+    ASSERT_EQ_INT(cmd.address_len, 0);
+
+    /* CONTINUE / CONT alias support (Telenet "return to data mode"
+       keyword). Aliased to X28_CMD_CONTINUE, takes no argument.
+       Verify both forms recognise and that the short form does not
+       false-match against the longer one (terminator rule). */
+    {
+        static const x28_command_alias_t cont_aliases[] = {
+            { "CONTINUE", X28_CMD_CONTINUE, 0, NULL, 0 },
+            { "CONT",     X28_CMD_CONTINUE, 0, NULL, 0 },
+            { NULL,       0,                0, NULL, 0 }
+        };
+        ASSERT_EQ_INT(parse_with_aliases("CONT", cont_aliases, &cmd),
+                      X28_PARSE_OK);
+        ASSERT_EQ_INT(cmd.type, X28_CMD_CONTINUE);
+        ASSERT_EQ_INT(parse_with_aliases("cont", cont_aliases, &cmd),
+                      X28_PARSE_OK);
+        ASSERT_EQ_INT(cmd.type, X28_CMD_CONTINUE);
+        ASSERT_EQ_INT(parse_with_aliases("CONTINUE", cont_aliases, &cmd),
+                      X28_PARSE_OK);
+        ASSERT_EQ_INT(cmd.type, X28_CMD_CONTINUE);
+        ASSERT_EQ_INT(parse_with_aliases("continue", cont_aliases, &cmd),
+                      X28_PARSE_OK);
+        ASSERT_EQ_INT(cmd.type, X28_CMD_CONTINUE);
+        /* "CONTINUE" must match the long alias, NOT the short one
+           that happens to be a prefix; the terminator rule on CONT
+           rejects the 'I' that follows it. */
+        ASSERT_EQ_INT(parse_with_aliases("CONTINUE", cont_aliases, &cmd),
+                      X28_PARSE_OK);
+        ASSERT_EQ_INT(cmd.type, X28_CMD_CONTINUE);
+        /* Bare alias rejects alphanumeric suffix. */
+        ASSERT_EQ_INT(parse_with_aliases("CONTROL", cont_aliases, &cmd),
+                      X28_PARSE_OK);
+        ASSERT_EQ_INT(cmd.type, X28_CMD_SELECTION);
+    }
+
+    /* Preset-pairs mechanism (Telenet "HALF"/"FULL"). The alias maps
+       to X28_CMD_SET and carries inline ref:val args that the parser
+       pre-populates into out->params before returning. */
+    {
+        static const uint8 half_pairs[] = { 2, 0 };
+        static const uint8 full_pairs[] = { 2, 1 };
+        static const x28_command_alias_t set_aliases[] = {
+            { "HALF", X28_CMD_SET, 0, half_pairs, 1 },
+            { "FULL", X28_CMD_SET, 0, full_pairs, 1 },
+            { NULL,   0,           0, NULL,       0 }
+        };
+        ASSERT_EQ_INT(parse_with_aliases("HALF", set_aliases, &cmd),
+                      X28_PARSE_OK);
+        ASSERT_EQ_INT(cmd.type, X28_CMD_SET);
+        ASSERT_EQ_INT(cmd.param_count, 1);
+        ASSERT_EQ_INT(cmd.params[0].ref, 2);
+        ASSERT_EQ_INT(cmd.params[0].value, 0);
+        ASSERT_EQ_INT(cmd.params[0].invalid, 0);
+
+        ASSERT_EQ_INT(parse_with_aliases("full", set_aliases, &cmd),
+                      X28_PARSE_OK);
+        ASSERT_EQ_INT(cmd.type, X28_CMD_SET);
+        ASSERT_EQ_INT(cmd.param_count, 1);
+        ASSERT_EQ_INT(cmd.params[0].ref, 2);
+        ASSERT_EQ_INT(cmd.params[0].value, 1);
+    }
+
+    /* Multi-pair preset: a single alias may carry several ref:val
+       pairs in one shot. */
+    {
+        static const uint8 multi_pairs[] = { 2, 0, 3, 0, 4, 20 };
+        static const x28_command_alias_t multi_aliases[] = {
+            { "TRANSPARENT", X28_CMD_SET, 0, multi_pairs, 3 },
+            { NULL,          0,           0, NULL,        0 }
+        };
+        ASSERT_EQ_INT(parse_with_aliases("TRANSPARENT", multi_aliases, &cmd),
+                      X28_PARSE_OK);
+        ASSERT_EQ_INT(cmd.type, X28_CMD_SET);
+        ASSERT_EQ_INT(cmd.param_count, 3);
+        ASSERT_EQ_INT(cmd.params[0].ref, 2);
+        ASSERT_EQ_INT(cmd.params[0].value, 0);
+        ASSERT_EQ_INT(cmd.params[1].ref, 3);
+        ASSERT_EQ_INT(cmd.params[1].value, 0);
+        ASSERT_EQ_INT(cmd.params[2].ref, 4);
+        ASSERT_EQ_INT(cmd.params[2].value, 20);
+    }
+}
+
 static void test_format_help(void)
 {
     uint8 buf[256];
@@ -591,6 +753,7 @@ int main(void)
     test_parse_extended_lang();
     test_parse_extended_help();
     test_parse_extended_aliases();
+    test_personality_aliases_mechanism();
     test_format_help();
     test_format_help_subject_par();
     test_format_help_subject_set();

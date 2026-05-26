@@ -39,13 +39,22 @@
 #include "types.h"
 #include "x3.h"
 #include "x25.h"
+#include "x28_signals.h"        /* for X28_MAX_ADDRESS_LEN */
 
 #define PAD_EDIT_BUF_SIZE  256
 #define PAD_ASM_BUF_SIZE   256
 #define PAD_REMOTE_Q_SIZE  1024 /* bytes from remote held while we are not
                                    in DATA_TRANSFER, drained on entry */
-#define PAD_ID_MAX         63   /* PAD identification text (X.28 §3.5.18) */
-#define PAD_NUI_MAX        31   /* session-level NUI from ID command (§5.2) */
+#define PAD_ID_MAX             63 /* PAD identification text (X.28 §3.5.18) */
+#define PAD_NUI_MAX            31 /* session-level NUI from ID command (§5.2) */
+#define PAD_ADDRESS_MAX        63 /* PAD network-address identity (synthetic;
+                                     bridge IP:port for the TCP transport,
+                                     shown on the line after the banner when
+                                     the active personality opts in) */
+#define PAD_TERMINAL_TYPE_MAX  15 /* user-supplied terminal type captured at
+                                     handshake (Telenet "TERMINAL=" prompt);
+                                     typical real values are 2-3 chars (D1,
+                                     A1, T1...), 15 is generous */
 #define PAD_PENDING_SIZE   256  /* DTE bytes buffered during call setup;
                                    see deviations.txt for §3.2.1.5 note */
 
@@ -63,7 +72,14 @@ typedef enum {
     PAD_STATE_PAD_COMMAND      = 6,
     PAD_STATE_CONN_IN_PROGRESS = 7,
     PAD_STATE_DATA_TRANSFER    = 9,
-    PAD_STATE_WAITING_FOR_CMD  = 10
+    PAD_STATE_WAITING_FOR_CMD  = 10,
+    /* Padawan-Lite extension: handshake-time terminal-type capture
+       for personalities that opt in via terminal_type_prompt
+       (Telenet's "TERMINAL=" prompt). Entered from complete_handshake;
+       bytes are accumulated free-form into pad_session_t.terminal_type
+       (echoed as they arrive) until CR, at which point the session
+       transitions to PAD_WAITING and emits the regular prompt. */
+    PAD_STATE_AWAITING_TERMINAL_TYPE = 11
 } pad_state_t;
 
 /* Output callback. PAD invokes emit_dte when sending bytes to the DTE;
@@ -156,6 +172,34 @@ typedef struct {
     /* PAD identification text (X.28 §3.5.18, network-dependent). Default
        set by pad_init; override via pad_set_identification. */
     char pad_id_text[PAD_ID_MAX + 1];
+
+    /* Synthetic PAD network-address identity. The bridge sets this
+       per session to the address the user reached us at (typically
+       the bridge's local listen IP:port). Emitted on the line after
+       the PAD identification banner ONLY when the active personality
+       sets emit_address = 1 (Telenet does; others don't). Empty if
+       the bridge never set it (e.g. stdin sessions). Set via
+       pad_set_address. */
+    char pad_address[PAD_ADDRESS_MAX + 1];
+
+    /* Address argument from the most recent SELECTION command.
+       Captured before x25_call so personality-controlled service
+       signals can prefix the address to CONNECTED / DISCONNECTED /
+       CLR-cause messages (Telenet style: "<address> CONNECTED",
+       "<address> DISCONNECTED"). Stays set across the call so the
+       eventual clear-indication can still reference it; overwritten
+       when the next SELECTION runs. Empty in command state before
+       any call has been placed. */
+    char called_address[X28_MAX_ADDRESS_LEN + 1];
+
+    /* User-supplied terminal type captured at handshake when the
+       active personality opts in via terminal_type_prompt (Telenet's
+       "TERMINAL=" prompt). Empty string until the user has answered
+       (and remains empty if they answered with just CR -- that's a
+       legitimate "default terminal" response, not absence). Free-form
+       capture; no editing. Truncated at PAD_TERMINAL_TYPE_MAX. */
+    char  terminal_type[PAD_TERMINAL_TYPE_MAX + 1];
+    uint8 terminal_type_len;   /* characters captured so far during input */
 
     /* Auth callback (NULL = no auth, the default). See pad_auth_fn. */
     pad_auth_fn auth_cb;
@@ -299,6 +343,16 @@ int pad_remote_interrupted(pad_session_t *p, uint8 user_data);
    PAD_ID_MAX). Pass NULL or "" to disable the identification entirely
    (handshake still completes; just no banner is emitted). */
 void pad_set_identification(pad_session_t *p, const char *text);
+
+/* Set the synthetic PAD network-address identity for this session.
+   The bridge calls this with the local listen IP:port the user
+   reached us at (e.g. "127.0.0.1:30099"). The address is emitted on
+   the line after the PAD identification banner ONLY when the active
+   personality opts in via the personality's emit_address field
+   (Telenet does; default and Tymnet do not). The string is copied
+   into the session (truncated to PAD_ADDRESS_MAX). Pass NULL or ""
+   to clear. */
+void pad_set_address(pad_session_t *p, const char *text);
 
 /* Install an auth callback for this session. Invoked during SELECTION
    dispatch before any X.25 call is placed. Pass NULL to remove. */

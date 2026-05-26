@@ -4,6 +4,87 @@ All notable changes to Padawan-Lite are recorded here. The format
 follows [Keep a Changelog](https://keepachangelog.com/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.3.0] — 2026-05-26
+
+### Added
+
+- **Personality command-alias mechanism.** New parser hook
+  (`x28_command_alias_t` in `include/x28_signals.h`) lets a
+  personality publish network-specific command keywords beyond
+  the X.28 standard set, optionally with preset SET pairs for
+  "named-SET" aliases. Matched after standard X.28 keywords and
+  before the SELECTION fallthrough -- personalities add synonyms
+  but never override standard names. Wired through
+  `personality_t.command_aliases` and `pad.c::feed_command_byte`.
+- **Telenet personality refinements based on Telenet user-doc
+  research.** Several behaviours added to make `--emulate telenet`
+  faithful to documented Telenet user experience:
+  - Command synonyms: `C` / `CONNECT` (CALL), `D` / `DISCONNECT`
+    (CLR), `CONT` / `CONTINUE` (return-to-data after recall),
+    `HALF` (SET 2:0, echo off), `FULL` (SET 2:1, echo on).
+  - **Two-CR handshake** (`personality_t.handshake_acks_needed`):
+    Telenet's autobaud convention -- the first CR holds in
+    DTE_WAITING, the second emits the banner and proceeds.
+  - **Address-line identity after banner**
+    (`personality_t.emit_address` + `pad_set_address`): mirrors
+    Telenet's "TELENET\n<address>" display by emitting the bridge's
+    local listen IP:port on the line after the banner. Bridge
+    captures via `getsockname` per TCP accept.
+  - **Address-prefixed call signals**
+    (`personality_t.prefix_called_address_on_call_signals`):
+    `CONNECTED` / `DISCONNECTED` / cause-text indications are
+    rendered as `<address> CONNECTED` / `<address> DISCONNECTED`
+    instead of the standard X.28 forms. New
+    `personality_t.clr_confirm_text` field for the
+    clear-confirmation override.
+  - **Multi-shot PAD recall**
+    (`personality_t.keep_command_mode_after_recall`): Telenet
+    lets users issue several commands per recall, with explicit
+    `CONT` / `CONTINUE` to return to data mode. The `CONTINUE`
+    handler is now load-bearing under this mode.
+  - **`TERMINAL=` terminal-type prompt**
+    (`personality_t.terminal_type_prompt`, new PAD state
+    `PAD_STATE_AWAITING_TERMINAL_TYPE`): emitted after the
+    banner+address; user response captured free-form (until CR)
+    into `pad_session_t.terminal_type`. Informational only; no
+    X.3 profile mapping currently applied.
+- New `X28_CMD_CONTINUE` enum value (Padawan-Lite extension;
+  reachable only via personality aliases).
+- New API `pad_set_address(p, text)` for the bridge to communicate
+  its local listen IP:port to the PAD.
+- 119 new unit tests (was 619 at v1.2; total now 774) across
+  `tests/test_personality.c` and `tests/test_x28_signals.c`,
+  covering the alias mechanism, preset-pair dispatch, every Telenet
+  alias, the two-CR handshake, the address-line emission, the
+  address-prefix signals, multi-shot recall, the `TERMINAL=`
+  capture path, and the X.28 default-personality regressions for
+  each of them.
+
+### Fixed
+
+- **PAD recall now emits the `@` prompt.** X.28 §3.5.23 requires
+  the prompt when the PAD is ready for a command. Previously,
+  recall from `DATA_TRANSFER` or `CONN_IN_PROGRESS` silently
+  changed state without emitting the prompt -- users had to type
+  blind. Universal fix; gated only by X.3 param 6's prompt bit.
+- **`CLR` command now emits the `@` prompt** after the
+  clear-confirmation. Previously the dispatch set state directly
+  to `PAD_WAITING` and bypassed the post-dispatch prompt logic,
+  leaving the user without a visible prompt until they typed
+  another command.
+
+### Changed
+
+- The Telenet personality's profile overlay still leaves X.3
+  param 1 (PAD recall character) at the simple-profile default
+  (DLE / Ctrl-P). Authentic Telenet used `@` (decimal 64), but
+  `@` is too prevalent in modern user input (email addresses,
+  vi commands, shell paths) to commandeer as PAD recall.
+  Documented in `deviations.txt`; users wanting authentic
+  recall can issue `SET 1:64` per session.
+
+[1.3.0]: https://example.invalid/padawan-lite/releases/tag/v1.3.0
+
 ## [1.2.0] — 2026-05-24
 
 ### Added

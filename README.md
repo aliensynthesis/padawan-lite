@@ -16,7 +16,7 @@ packet-switched era.
 ## Features
 
 - **ITU-T X.28 / X.3 / X.29 compliant.** Every command, every
-  parameter, every service signal from the standard. 619 unit tests
+  parameter, every service signal from the standard. 774 unit tests
   cite the spec clauses they exercise; every known deviation is
   recorded in [`deviations.txt`](deviations.txt).
 - **Two run modes.** Single session over stdin/stdout for an
@@ -43,12 +43,19 @@ packet-switched era.
   [`PCP_GUIDE.md`](PCP_GUIDE.md) for the protocol reference and a
   worked example.
 - **PAD personality system.** `--emulate <name>` swaps the visible
-  PAD surface (banner, prompt character, NUI prompt, service-signal
-  text, X.3 profile overlay) to recreate historical PSPDN PAD
+  PAD surface (banner, address-identity line, prompt character,
+  NUI prompt, service-signal text, X.3 profile overlay,
+  network-specific command synonyms, handshake conventions, and
+  PAD-recall semantics) to recreate historical PSPDN PAD
   experiences. Ships with `default` (X.28-standard), `telenet`,
-  and `tymnet` personalities. The Telenet and Tymnet data are
-  best-effort reconstructions; see `src/personality.c` for VERIFY
-  caveats.
+  and `tymnet` personalities. The Telenet personality includes the
+  documented two-CR handshake, the `TERMINAL=` prompt, `<address>
+  CONNECTED` / `<address> DISCONNECTED` signal formatting,
+  multi-shot PAD recall with explicit `CONTINUE`, and command
+  aliases (`C`/`CONNECT`/`D`/`DISCONNECT`/`CONT`/`CONTINUE`/
+  `HALF`/`FULL`). Telenet data is partly user-doc-sourced and
+  partly best-effort reconstruction; see `src/personality.c` and
+  `deviations.txt` for VERIFY caveats.
 - **Pluggable transport.** Padawan-Lite talks to the network through
   an abstract X.25 service interface ([`include/x25.h`](include/x25.h));
   the Telnet/TCP bridge is one implementation. Write another if you
@@ -60,7 +67,7 @@ Linux with GCC 11+ and GNU make:
 
 ```sh
 make            # builds padawan-lite binary, libpadawancore.a, and test binaries
-make test       # runs the 619-test suite (5 binaries: test_pad, test_personality, test_x28_signals, test_x29_messages, test_x3)
+make test       # runs the 774-test suite (5 binaries: test_pad, test_personality, test_x28_signals, test_x29_messages, test_x3)
 ./padawan-lite -h  # CLI usage summary
 ```
 
@@ -214,9 +221,9 @@ $ make test
 ==> tests/test_pad
 ok 252/252
 ==> tests/test_personality
-ok 25/25
+ok 118/118
 ==> tests/test_x28_signals
-ok 199/199
+ok 261/261
 ==> tests/test_x29_messages
 ok 73/73
 ==> tests/test_x3
