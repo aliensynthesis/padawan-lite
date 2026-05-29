@@ -461,6 +461,81 @@ static void test_telenet_disconnect_emits_address_and_text(void)
     ASSERT_EQ_INT(pad.state, PAD_STATE_PAD_WAITING);
 }
 
+static void test_telenet_clr_indication_OCC_emits_busy_with_prefix(void)
+{
+    /* Cause OCC (idx 0) under Telenet: "<address> BUSY". */
+    pad_session_t pad;
+    reset_io();
+    pad_init(&pad, X3_PROFILE_SIMPLE, cb_dte, cb_remote, NULL);
+    pad_set_personality(&pad, personality_by_name("telenet"));
+    pad_input_dte(&pad, (const uint8 *)"30199\r", 6);    /* call places */
+    reset_io();
+    pad_remote_cleared(&pad, PAD_CLR_NUMBER_BUSY, 1, 0);
+    ASSERT_TRUE(contains("30199 BUSY"));
+}
+
+static void test_telenet_clr_indication_NA_no_address_prefix(void)
+{
+    /* Cause NA (idx 3) under Telenet: "ILLEGAL DESTINATION ADDRESS"
+       emitted WITHOUT the address prefix per the skip bitmask --
+       the cause text is itself about the address being unusable. */
+    pad_session_t pad;
+    reset_io();
+    pad_init(&pad, X3_PROFILE_SIMPLE, cb_dte, cb_remote, NULL);
+    pad_set_personality(&pad, personality_by_name("telenet"));
+    pad_input_dte(&pad, (const uint8 *)"30199\r", 6);
+    reset_io();
+    pad_remote_cleared(&pad, PAD_CLR_ACCESS_BARRED, 11, 0);
+    ASSERT_TRUE(contains("ILLEGAL DESTINATION ADDRESS"));
+    ASSERT_TRUE(!contains("30199 ILLEGAL"));   /* no prefix */
+}
+
+static void test_telenet_clr_indication_NP_no_address_prefix(void)
+{
+    /* Cause NP (idx 6) under Telenet: "ILLEGAL ADDRESS", no prefix. */
+    pad_session_t pad;
+    reset_io();
+    pad_init(&pad, X3_PROFILE_SIMPLE, cb_dte, cb_remote, NULL);
+    pad_set_personality(&pad, personality_by_name("telenet"));
+    pad_input_dte(&pad, (const uint8 *)"30199\r", 6);
+    reset_io();
+    pad_remote_cleared(&pad, PAD_CLR_NUMBER_NOT_ASSIGNED, 13, 0);
+    ASSERT_TRUE(contains("ILLEGAL ADDRESS"));
+    ASSERT_TRUE(!contains("30199 ILLEGAL"));
+}
+
+static void test_telenet_clr_indication_RNA_with_prefix(void)
+{
+    /* Cause RNA (idx 14) under Telenet: "<address> NOT REACHABLE". */
+    pad_session_t pad;
+    reset_io();
+    pad_init(&pad, X3_PROFILE_SIMPLE, cb_dte, cb_remote, NULL);
+    pad_set_personality(&pad, personality_by_name("telenet"));
+    pad_input_dte(&pad, (const uint8 *)"30199\r", 6);
+    reset_io();
+    pad_remote_cleared(&pad, PAD_CLR_CANNOT_ROUTE, 0, 0);
+    ASSERT_TRUE(contains("30199 NOT REACHABLE"));
+}
+
+static void test_telenet_clr_indication_unmapped_falls_through(void)
+{
+    /* Cause RPE (idx 5) -- Telenet user-doc did not enumerate a
+       message for this cause, so the personality clr_text entry is
+       NULL; pad_remote_cleared falls through to the standard X.28
+       formatter "CLR RPE C:n D:n". */
+    pad_session_t pad;
+    reset_io();
+    pad_init(&pad, X3_PROFILE_SIMPLE, cb_dte, cb_remote, NULL);
+    pad_set_personality(&pad, personality_by_name("telenet"));
+    pad_input_dte(&pad, (const uint8 *)"30199\r", 6);
+    reset_io();
+    pad_remote_cleared(&pad, PAD_CLR_REMOTE_PROCEDURE_ERROR, 0, 0);
+    /* Standard X.28 short cause text; not the Telenet flavour. */
+    ASSERT_TRUE(contains("RPE"));
+    /* Standard formatter includes "CLR" prefix per X.28 §3.5.17. */
+    ASSERT_TRUE(contains("CLR"));
+}
+
 static void test_default_personality_uses_standard_com(void)
 {
     /* Default personality must emit the X.28-standard "COM" form
@@ -777,6 +852,11 @@ int main(void)
     test_telenet_DISCONNECT_alias_dispatches_clr();
     test_telenet_connected_includes_called_address();
     test_telenet_disconnect_emits_address_and_text();
+    test_telenet_clr_indication_OCC_emits_busy_with_prefix();
+    test_telenet_clr_indication_NA_no_address_prefix();
+    test_telenet_clr_indication_NP_no_address_prefix();
+    test_telenet_clr_indication_RNA_with_prefix();
+    test_telenet_clr_indication_unmapped_falls_through();
     test_default_personality_uses_standard_com();
     test_default_personality_clr_uses_standard_confirm();
     test_telenet_multi_command_recall_keeps_command_mode();

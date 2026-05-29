@@ -4,6 +4,75 @@ All notable changes to Padawan-Lite are recorded here. The format
 follows [Keep a Changelog](https://keepachangelog.com/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.4.1] — 2026-05-29
+
+### Added
+
+- **`personality_t.clr_text_skip_address_prefix`** — `uint16`
+  bitmask for per-cause suppression of the address prefix on
+  clear-indication signals. When the global
+  `prefix_called_address_on_call_signals` flag is on, bit N = 1
+  in this mask emits cause N's text bare (no `"<address> "`
+  prefix). Required for Telenet messages where the cause text
+  is itself about the address being unusable.
+
+### Changed
+
+- **Telenet clear-cause text sourced from Telenet user
+  documentation** supplied by the project owner. `TELENET_CLR_TEXT`
+  reworked from v1.2-era best-effort reconstruction to documented
+  Telenet user-facing strings. Note the sourcing track here is
+  distinct from v1.3.1's NETLINK reference: NETLINK source code
+  does NOT carry clear-cause text strings (NETLINK loaded them at
+  runtime from `PRIMENET*>NETLINK>CLEARING_CAUSES`, an external
+  data file not part of the X.25SRC distribution). Telenet user
+  documentation describes what the PAD itself emitted to the
+  user, which is the authoritative source for our emulation;
+  cross-checking against NETLINK's actual rendered text would
+  require obtaining that data file. See `deviations.txt`
+  [2026-05-29] for the full sourcing note.
+
+  New mappings:
+
+  | X.28 idx | Cause | Telenet text |
+  | --- | --- | --- |
+  | 0 | OCC | "BUSY" (unchanged) |
+  | 3 | NA | "ILLEGAL DESTINATION ADDRESS" (no prefix) |
+  | 6 | NP | "ILLEGAL ADDRESS" (no prefix) |
+  | 7 | OOO | "NOT OPERATING" |
+  | 9 | DER | "NOT RESPONDING" |
+  | 10 | RCH | "REFUSED COLLECT CONNECTION" |
+  | 11 | ID | "DOES NOT SUPPORT TERMINAL" |
+  | 14 | RNA | "NOT REACHABLE" |
+
+  Five causes (NC, INV, ERR, RPE, SHN, FNA) the Telenet user-doc
+  did not enumerate are now NULL entries that fall through to
+  the X.28-standard short abbreviation rather than perpetuating
+  placeholder text.
+
+- Telenet personality's `clr_text_skip_address_prefix` is set to
+  `(1<<3) | (1<<6)` so the NA and NP messages render without
+  the address prefix.
+
+### Not added (deliberate scope limits)
+
+- Two Telenet user-doc messages ("ILLEGAL SOURCE ADDRESS" and
+  "<address> NOT AVAILABLE") do not map cleanly to X.28's
+  fifteen standard clear-causes. Rather than overload an
+  existing cause with conflicting meanings, both fall through to
+  the X.28 default text. Encoding them would require extending
+  `pad_clear_cause_t` with Telenet-specific causes, which is not
+  worth the surface-area cost in the 1.x line. See
+  `deviations.txt` [2026-05-29].
+
+### Verified
+
+- 776 tests pass (was 768; eight new tests cover the OCC/NA/NP/RNA
+  paths, the unmapped-cause fall-through, and the bitmask
+  behaviour).
+
+[1.4.1]: https://example.invalid/padawan-lite/releases/tag/v1.4.1
+
 ## [1.4.0] — 2026-05-29
 
 ### Removed

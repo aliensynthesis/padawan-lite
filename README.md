@@ -16,7 +16,7 @@ packet-switched era.
 ## Features
 
 - **ITU-T X.28 / X.3 / X.29 compliant.** Every command, every
-  parameter, every service signal from the standard. 768 unit tests
+  parameter, every service signal from the standard. 776 unit tests
   cite the spec clauses they exercise; every known deviation is
   recorded in [`deviations.txt`](deviations.txt).
 - **Two run modes.** Single session over stdin/stdout for an
@@ -67,7 +67,7 @@ Linux with GCC 11+ and GNU make:
 
 ```sh
 make            # builds padawan-lite binary, libpadawancore.a, and test binaries
-make test       # runs the 768-test suite (5 binaries: test_pad, test_personality, test_x28_signals, test_x29_messages, test_x3)
+make test       # runs the 776-test suite (5 binaries: test_pad, test_personality, test_x28_signals, test_x29_messages, test_x3)
 ./padawan-lite -h  # CLI usage summary
 ```
 
@@ -221,7 +221,7 @@ $ make test
 ==> tests/test_pad
 ok 252/252
 ==> tests/test_personality
-ok 112/112
+ok 120/120
 ==> tests/test_x28_signals
 ok 261/261
 ==> tests/test_x29_messages

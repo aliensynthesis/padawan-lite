@@ -861,3 +861,102 @@ Each item names the spec clauses that govern it.
   surfaced AND (b) the actual behaviour turned out to be more
   X.28-shaped than the available historical record suggests. The
   bar is high; this removal should not be reversed casually.
+
+[2026-05-29] src/personality.c - Telenet clear-cause text from user-doc
+  TELENET_CLR_TEXT reworked from best-effort reconstruction to text
+  sourced from Telenet user documentation supplied by the project
+  owner.
+
+  Sourcing note: this is a DIFFERENT primary-source track from
+  v1.3.1's NETLINK X.3 overlay refresh, and the two are not
+  interchangeable. NETLINK source code (X.25SRC>NETLINK) does NOT
+  contain clear-cause text strings; NETLINK's X$CC.PLP is a
+  template that delegates to a generic file-lookup utility
+  (DET$GET) loading strings at runtime from the external data
+  files PRIMENET*>NETLINK>CLEARING_CAUSES and >DIAGNOSTICS, which
+  are not part of the X.25SRC distribution.
+
+  Consequence:
+    - The v1.4.1 strings cannot be verified or contradicted by
+      the NETLINK source we have. They describe what a Telenet
+      PAD itself emitted to the user (per Telenet user docs),
+      which is the authoritative source for our emulation.
+    - The hypothetical NETLINK CLEARING_CAUSES data file would
+      show what NETLINK rendered to Prime users on receiving a
+      clear -- a separate angle on the same event. NETLINK could
+      have used identical text, similar text, or fully rewritten
+      text targeting Prime conventions; nothing in the source
+      forces a match.
+    - If PRIMENET*>NETLINK>CLEARING_CAUSES surfaces (PRIMOS
+      install media, vintage archive, museum collection),
+      cross-checking is worth the effort -- discrepancies would
+      illuminate the Prime-vs-Telenet phrasing boundary. Adjust
+      this entry if such a cross-check ever happens.
+
+  Mappings onto X.28 standard cause indices:
+
+    idx cause  Telenet text                       prefix?
+    --- -----  ----                               ------
+     0  OCC    "BUSY"                              yes
+     1  NC     (fall through to X.28 default)      -
+     2  INV    (fall through to X.28 default)      -
+     3  NA     "ILLEGAL DESTINATION ADDRESS"       NO
+     4  ERR    (fall through to X.28 default)      -
+     5  RPE    (fall through to X.28 default)      -
+     6  NP     "ILLEGAL ADDRESS"                   NO
+     7  OOO    "NOT OPERATING"                     yes
+     8  DTE    "DISCONNECTED" (also clr_confirm)   yes
+     9  DER    "NOT RESPONDING"                    yes
+    10  RCH    "REFUSED COLLECT CONNECTION"        yes
+    11  ID     "DOES NOT SUPPORT TERMINAL"         yes
+    12  SHN    (fall through to X.28 default)      -
+    13  FNA    (fall through to X.28 default)      -
+    14  RNA    "NOT REACHABLE"                     yes
+
+  NULL entries fall through to clear_cause_text() in src/pad.c
+  which returns the X.28-standard short abbreviation; Telenet
+  user-doc did not enumerate distinct messages for these causes,
+  so preserving a placeholder would be worse than falling through.
+
+  Two Telenet messages the user-doc DID enumerate are
+  intentionally NOT mapped to an X.28 cause:
+
+    - "ILLEGAL SOURCE ADDRESS" -- "computer refusing because of
+      terminal's address". Closest X.28 cause would have been RPE
+      (Remote Procedure Error), but squeezing a specific
+      address-based-rejection message into RPE would overload it
+      with two unrelated meanings. RPE falls through to the X.28
+      standard short code instead.
+    - "<address> NOT AVAILABLE" -- "computer operating but
+      actively refusing". No clean X.28 cause-code equivalent;
+      similar reasoning to ILLEGAL SOURCE ADDRESS.
+
+  Both messages exist in Telenet's vocabulary but originate from
+  Telenet-specific cause-code handling beyond X.25's standard
+  cause-byte taxonomy; encoding them would require extending the
+  pad_clear_cause_t enum with Telenet-specific causes, which
+  isn't worth the surface-area cost in v1.x.
+
+[2026-05-29] include/personality.h, src/pad.c - per-cause
+  address-prefix suppression
+  personality_t gains uint16 clr_text_skip_address_prefix. When
+  prefix_called_address_on_call_signals is on, this bitmask
+  selectively suppresses the prefix for specific clear-causes:
+  bit N = 1 means cause N is emitted as bare text rather than
+  "<address> text".
+
+  Required because three of the Telenet user-doc messages
+  ("ILLEGAL ADDRESS", "ILLEGAL DESTINATION ADDRESS", and the
+  unmapped "ILLEGAL SOURCE ADDRESS") describe the address itself
+  as the problem, so prefixing them with the address would be
+  confusing ("12345 ILLEGAL ADDRESS" reads ambiguously).
+
+  Telenet sets the bitmask to (1<<3) | (1<<6) covering NA and NP.
+  Default personality leaves it 0. The bitmask is only consulted
+  when prefix_called_address_on_call_signals is also 1, so the
+  default personality's behaviour is unchanged.
+
+  pad_remote_cleared in src/pad.c was updated to consult the
+  bitmask in the personality-text + prefix path; if the cause
+  bit is set, emit_signal_text (bare) is called instead of
+  emit_signal_text_with_addr (prefixed).

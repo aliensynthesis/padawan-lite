@@ -1330,11 +1330,20 @@ int pad_remote_cleared(pad_session_t *p, pad_clear_cause_t cause,
         /* When the personality both supplies its own cause text AND
            opts into prefixing the called address, render as
            "<address> <text>" (Telenet style) instead of the X.28-
-           standard "CLR <text> C:n D:n". Otherwise fall through to
-           the standard formatter. */
+           standard "CLR <text> C:n D:n". Per-cause exception: when
+           clr_text_skip_address_prefix has the bit for this cause
+           set, emit the text bare (no address prefix). Used by
+           Telenet for causes whose text is itself about the address
+           being bad ("ILLEGAL ADDRESS", "ILLEGAL DESTINATION
+           ADDRESS"); prefixing them would be confusing. */
         if (personality_override &&
             p->personality->prefix_called_address_on_call_signals) {
-            emit_signal_text_with_addr(p, text);
+            uint32 mask = (uint32)p->personality->clr_text_skip_address_prefix;
+            if (mask & (1u << (uint32)cause)) {
+                emit_signal_text(p, text);
+            } else {
+                emit_signal_text_with_addr(p, text);
+            }
         } else {
             n = x28_format_clr_indication(text, cause_code, diagnostic,
                                           buf, sizeof(buf));

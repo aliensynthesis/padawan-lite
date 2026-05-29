@@ -76,6 +76,7 @@ static const personality_t PERSONALITY_DEFAULT = {
     0,              /* emit_address: off */
     1,              /* handshake_acks_needed: single CR */
     0,              /* prefix_called_address_on_call_signals: off */
+    0,              /* clr_text_skip_address_prefix: n/a (prefix off) */
     0,              /* keep_command_mode_after_recall: X.28 one-shot */
     NULL            /* terminal_type_prompt: none */
 };
@@ -89,22 +90,54 @@ static const personality_t PERSONALITY_DEFAULT = {
    ("TELENET 215 5D" or similar); without authoritative primary
    sources we emit just "TELENET" here and let the user override
    with pad_set_identification for a specific node ID. */
+
+/* Telenet clear-cause text table. Entries sourced 2026-05-29 from
+   Telenet user-doc text supplied by the project owner; mappings
+   onto X.28 standard cause indices are documented per-row.
+
+   NULL entries fall through to the X.28-standard short cause
+   abbreviation (set by clear_cause_text() in src/pad.c). The
+   Telenet user-doc did NOT enumerate distinct messages for those
+   causes (NC, INV, ERR, RPE, SHN, FNA); the fall-through preserves
+   the X.28 abbreviation rather than perpetuating a placeholder.
+
+   Three entries (NA / NP, and conceptually ILLEGAL SOURCE ADDRESS
+   if we ever map it) must be emitted WITHOUT the address prefix
+   because the text is itself about the address being bad. That is
+   handled via clr_text_skip_address_prefix on the personality_t
+   literal below. */
 static const char *const TELENET_CLR_TEXT[PERSONALITY_CLR_CAUSE_COUNT] = {
-    "BUSY",                     /* 0  OCC -> Telenet: VERIFY */
-    "NETWORK CONGESTION",       /* 1  NC  -> Telenet: VERIFY */
-    "INVALID FACILITY",         /* 2  INV -> Telenet: VERIFY */
-    "ACCESS BARRED",            /* 3  NA  -> Telenet: VERIFY */
-    "LOCAL ERROR",              /* 4  ERR -> Telenet: VERIFY */
-    "REMOTE ERROR",             /* 5  RPE -> Telenet: VERIFY */
-    "NOT REACHABLE",            /* 6  NP  -> Telenet: VERIFY */
-    "OUT OF ORDER",             /* 7  OOO -> Telenet: VERIFY */
-    "DISCONNECTED",             /* 8  DTE -> Telenet: VERIFY */
-    "REMOTE DEVICE ERROR",      /* 9  DER -> Telenet: VERIFY */
-    "COLLECT REFUSED",          /* 10 RCH -> Telenet: VERIFY */
-    "INCOMPATIBLE DESTINATION", /* 11 ID  -> Telenet: VERIFY */
-    "SHIP NOT CONTACTED",       /* 12 SHN -> Telenet: VERIFY */
-    "FAST SELECT REFUSED",      /* 13 FNA -> Telenet: VERIFY */
-    "CANNOT ROUTE"              /* 14 RNA -> Telenet: VERIFY */
+    "BUSY",                          /* 0  OCC -- "All computer ports
+                                                  are in use" */
+    NULL,                            /* 1  NC  -- fall through */
+    NULL,                            /* 2  INV -- fall through */
+    "ILLEGAL DESTINATION ADDRESS",   /* 3  NA  -- "Connection to this
+                                                  address is not
+                                                  permitted" (no addr
+                                                  prefix; see mask) */
+    NULL,                            /* 4  ERR -- fall through */
+    NULL,                            /* 5  RPE -- fall through */
+    "ILLEGAL ADDRESS",               /* 6  NP  -- "address identifies
+                                                  a non-existent
+                                                  system" (no addr
+                                                  prefix; see mask) */
+    "NOT OPERATING",                 /* 7  OOO -- "computer is not
+                                                  operating" */
+    "DISCONNECTED",                  /* 8  DTE -- user-initiated clear;
+                                                  also referenced by
+                                                  clr_confirm_text */
+    "NOT RESPONDING",                /* 9  DER -- "operating but not
+                                                  acknowledging" */
+    "REFUSED COLLECT CONNECTION",    /* 10 RCH -- "not willing to
+                                                  accept charges" */
+    "DOES NOT SUPPORT TERMINAL",     /* 11 ID  -- "refusing because of
+                                                  the terminal model
+                                                  or mode" */
+    NULL,                            /* 12 SHN -- fall through */
+    NULL,                            /* 13 FNA -- fall through */
+    "NOT REACHABLE"                  /* 14 RNA -- "intervening
+                                                  components are out
+                                                  of service" */
 };
 
 /* Telenet PAD X.3 parameter overlay.
@@ -241,6 +274,13 @@ static const personality_t PERSONALITY_TELENET = {
     1,                                 /* prefix_called_address_on_call_signals:
                                           render as "<address> CONNECTED",
                                           "<address> DISCONNECTED", etc. */
+    (1u << 3) | (1u << 6),             /* clr_text_skip_address_prefix:
+                                          bit 3 (NA / "ILLEGAL DESTINATION
+                                          ADDRESS") and bit 6 (NP /
+                                          "ILLEGAL ADDRESS") are emitted
+                                          WITHOUT the address prefix
+                                          because the cause text is itself
+                                          about the address being bad */
     1,                                 /* keep_command_mode_after_recall:
                                           multi-shot recall per Telenet
                                           user doc; CONT/CONTINUE returns

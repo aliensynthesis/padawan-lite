@@ -155,6 +155,21 @@ typedef struct personality {
        (those still use the X.28-standard formatter). */
     uint8 prefix_called_address_on_call_signals;
 
+    /* Per-cause override of the address-prefix behaviour for
+       clear-indication signals (pad_remote_cleared path). When
+       prefix_called_address_on_call_signals is 1, this bitmask
+       suppresses the prefix for specific causes: bit N = 1 means
+       cause N's text is emitted without the leading "<address> "
+       even though the personality otherwise prefixes call signals.
+       Necessary for causes whose text is itself about the address
+       being bad ("ILLEGAL ADDRESS", "ILLEGAL DESTINATION ADDRESS")
+       where a prefix would be confusing. Cause indices are the
+       pad_clear_cause_t enum values; only the low 16 bits are
+       meaningful (PERSONALITY_CLR_CAUSE_COUNT = 15). Default 0
+       means "prefix every cause's text when the global prefix
+       flag is on". */
+    uint16 clr_text_skip_address_prefix;
+
     /* When non-zero, PAD recall is multi-shot: after the user types
        a command in WAITING_FOR_CMD with a connected call, the
        session stays in command mode and emits a fresh prompt
