@@ -30,8 +30,10 @@ multi-shot recall keeps you in command mode until you issue this),
 `HALF` for `SET 2:0` (echo off; half-duplex terminals), `FULL` for
 `SET 2:1` (echo on). Handshake requires two CRs; banner is followed
 by an `<address>` line and a `TERMINAL=` prompt. Call signals render
-as `<address> CONNECTED` / `<address> DISCONNECTED`. See
-[`deviations.txt`](deviations.txt) for the full list and rationale.
+as `<address> CONNECTED` / `<address> DISCONNECTED`. Comprehensive
+reference card in [`QUICKREF_TELENET.md`](QUICKREF_TELENET.md);
+sourcing decisions and known deviations documented in
+[`deviations.txt`](deviations.txt).
 | `-h`, `--help`             | Show usage                                               |
 
 Default (no flags): one session bound to stdin/stdout, simple profile,

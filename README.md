@@ -56,6 +56,10 @@ packet-switched era.
   `HALF`/`FULL`). Telenet data is partly user-doc-sourced and
   partly best-effort reconstruction; see `src/personality.c` and
   `deviations.txt` for VERIFY caveats.
+  See [`QUICKREF_TELENET.md`](QUICKREF_TELENET.md) for the full
+  Telenet reference card (handshake, command aliases, signal text,
+  X.3 overlay, sourcing pyramid, and known deviations all in one
+  place).
 - **Pluggable transport.** Padawan-Lite talks to the network through
   an abstract X.25 service interface ([`include/x25.h`](include/x25.h));
   the Telnet/TCP bridge is one implementation. Write another if you
