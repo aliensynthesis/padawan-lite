@@ -100,40 +100,65 @@ static const char *const TELENET_CLR_TEXT[PERSONALITY_CLR_CAUSE_COUNT] = {
     "CANNOT ROUTE"              /* 14 RNA -> Telenet: VERIFY */
 };
 
-/* Telenet's PAD parameter conventions favoured echo-on with CR
-   forwarding and a moderate idle timer. PERSONALITY_KEEP leaves the
-   profile default in place. VERIFY against original GTE doc. */
+/* Telenet PAD X.3 parameter overlay.
+
+   Values are sourced from Prime Computer's NETLINK X.25 client
+   (X.25SRC>NETLINK>X3_INIT.INS.PL1, c.1988), which initialised these
+   parameters when negotiating with Telenet PADs. NETLINK is the
+   authoritative reference: it had to interoperate with real Telenet
+   service for production use, so its initialiser block reflects
+   what Telenet PADs actually expected. Values that remain
+   PERSONALITY_KEEP either match the simple-profile default (no
+   override needed) or are storage-only / read-only on the PAD side. */
 static const uint8 TELENET_PROFILE_OVERLAY[X3_PAR_MAX + 1] = {
     0,                            /* 0  unused */
-    /* 1: Telenet user doc specifies "CR @ CR" as the escape to
-       command mode, which implies authentic Telenet set param 1 =
-       64 ('@'). Intentionally NOT applied here -- "@" is too useful
-       in modern user input (email, vi, shell paths) to commandeer
-       as PAD recall. Users wanting authentic behaviour can issue
-       SET 1:64 per session. See deviations.txt [2026-05-25] for
-       full rationale. */
-    PERSONALITY_KEEP,             /* 1  recall */
-    1,                            /* 2  echo on */
-    2,                            /* 3  forward on CR only (VERIFY) */
-    PERSONALITY_KEEP,             /* 4  idle */
-    1,                            /* 5  device (X-ON/X-OFF) */
-    5,                            /* 6  signals: standard (1) + prompt bit (4) */
-    2,                            /* 7  break -> reset */
-    PERSONALITY_KEEP,             /* 8  discard */
-    PERSONALITY_KEEP,             /* 9  cr_pad */
-    PERSONALITY_KEEP,             /* 10 fold */
-    PERSONALITY_KEEP,             /* 11 speed (read-only) */
-    1,                            /* 12 flow */
-    PERSONALITY_KEEP,             /* 13 lf_insert */
-    PERSONALITY_KEEP,             /* 14 lf_pad */
-    PERSONALITY_KEEP,             /* 15 edit */
-    PERSONALITY_KEEP,             /* 16 cdel */
-    PERSONALITY_KEEP,             /* 17 ldel */
-    PERSONALITY_KEEP,             /* 18 ldis */
-    PERSONALITY_KEEP,             /* 19 esig */
-    PERSONALITY_KEEP,             /* 20 mask */
-    PERSONALITY_KEEP,             /* 21 parity */
-    PERSONALITY_KEEP,             /* 22 page */
+    /* 1: NETLINK uses 1 (DLE / Ctrl-P), matching the simple-profile
+       default. This is also the Telenet T30 "abort character" per
+       Prime's X3_INIT.INS.PL1 (T30 = 0x10). The earlier interpretation
+       that authentic Telenet recall was '@' (from "CR @ CR" in Telenet
+       user docs) was wrong: "CR @ CR" was a NETLINK-side escape to
+       the local client's '@' prompt, not the PAD-level recall. See
+       deviations.txt [2026-05-25] (now amended). */
+    PERSONALITY_KEEP,             /* 1  recall (NETLINK: 1 = DLE) */
+    1,                            /* 2  echo on (NETLINK: 1) */
+    2,                            /* 3  forward on CR only.
+                                          NETLINK: 126 (forward on every
+                                          standard condition). DEVIATION
+                                          documented in deviations.txt;
+                                          larger UX implications, deferred. */
+    PERSONALITY_KEEP,             /* 4  idle (NETLINK: 0) */
+    1,                            /* 5  device flow XON/XOFF (NETLINK: 1) */
+    5,                            /* 6  signals: standard (1) + prompt bit (4).
+                                          NETLINK: 1 (no prompt bit). DEVIATION:
+                                          Telenet PADs apparently emitted '@'
+                                          outside the X.28 prompt-bit gate; our
+                                          implementation gates prompt emission
+                                          on param 6 bit 2, so we force the
+                                          bit on. Decoupling deferred. */
+    21,                           /* 7  break: discard output + send-indication
+                                          + interrupt (NETLINK: 21 = 16|4|1).
+                                          Previously 2 (reset only). */
+    PERSONALITY_KEEP,             /* 8  discard (NETLINK: 0) */
+    PERSONALITY_KEEP,             /* 9  cr_pad (NETLINK: 0) */
+    PERSONALITY_KEEP,             /* 10 fold (NETLINK: 0) */
+    PERSONALITY_KEEP,             /* 11 speed (NETLINK: 3 = 1200 baud;
+                                          read-only on PAD side, so KEEP) */
+    1,                            /* 12 DTE flow (NETLINK: 1) */
+    4,                            /* 13 lf_insert: bit 2 = LF echo to DTE
+                                          (NETLINK: 4). Previously KEEP. */
+    PERSONALITY_KEEP,             /* 14 lf_pad (NETLINK: 0) */
+    PERSONALITY_KEEP,             /* 15 edit (NETLINK: 0; editing engaged via
+                                          param 19's service signals) */
+    127,                          /* 16 cdel: DEL (NETLINK: 127). Previously
+                                          KEEP (= simple default 8 = BS).
+                                          Telenet expected DEL for char delete. */
+    PERSONALITY_KEEP,             /* 17 ldel (NETLINK: 24 = CAN = simple default) */
+    PERSONALITY_KEEP,             /* 18 ldis (NETLINK: 18 = DC2 = simple default) */
+    1,                            /* 19 esig: editing PAD service signals
+                                          enabled (NETLINK: 1). Previously KEEP. */
+    PERSONALITY_KEEP,             /* 20 mask (NETLINK: 0) */
+    PERSONALITY_KEEP,             /* 21 parity (NETLINK: 0) */
+    PERSONALITY_KEEP,             /* 22 page (NETLINK: 0) */
     PERSONALITY_KEEP, PERSONALITY_KEEP, PERSONALITY_KEEP, PERSONALITY_KEEP,
     PERSONALITY_KEEP, PERSONALITY_KEEP, PERSONALITY_KEEP, PERSONALITY_KEEP
 };

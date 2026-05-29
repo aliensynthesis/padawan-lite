@@ -4,6 +4,59 @@ All notable changes to Padawan-Lite are recorded here. The format
 follows [Keep a Changelog](https://keepachangelog.com/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.3.1] — 2026-05-29
+
+### Changed
+
+- **Telenet personality X.3 overlay now sourced from Prime
+  Computer's NETLINK X.25 client** (X.25SRC>NETLINK>X3_INIT.INS.PL1,
+  c.1988) rather than best-effort reconstruction. NETLINK was the
+  production user-side X.25 client for PRIMOS and had to
+  interoperate with real Telenet service, so its initialiser block
+  is the closest available primary-source reference outside of
+  GTE's operator manuals.
+
+  Four `TELENET_PROFILE_OVERLAY` values updated:
+  - **param 7** (break action): `2` → `21` (discard output + send
+    indication of break + interrupt; was "reset only")
+  - **param 13** (lf_insert): inherit-from-profile → `4` (LF echo
+    to DTE)
+  - **param 16** (cdel / char delete): inherit-from-profile (= `8`
+    BS) → `127` (DEL). Real Telenet expected the DEL key for
+    character delete, not Backspace.
+  - **param 19** (esig): inherit-from-profile → `1` (editing PAD
+    service signals enabled)
+
+  Three further mismatches between our overlay and NETLINK's
+  initialiser block were identified but deliberately NOT applied in
+  this release because each carries larger design implications:
+  - param 3 (forward) — NETLINK = 126, we still use 2 (CR only)
+  - param 6 (signals) — NETLINK = 1, we still use 5; needs
+    decoupling of prompt-emission logic from the X.3 param
+  - Telenet extended X.3 namespace (T13, T17, T18, T30, T36) — we
+    don't model the extension namespace at all
+
+  All deferred items documented in `deviations.txt`.
+
+- **Recall character documentation amended.** The earlier
+  deviations.txt entry [2026-05-25] inferred from Telenet user-doc
+  "CR @ CR" pattern that authentic Telenet recall was `@` (X.3
+  param 1 = 64) and that our choice of DLE / Ctrl-P was a
+  modern-convenience deviation. NETLINK source confirms Telenet
+  PADs actually used param 1 = 1 (DLE) and a separate "abort
+  character" Telenet extension T30 = 0x10 (also DLE). Our choice
+  was correct all along; the "CR @ CR" sequence in Telenet docs
+  was the *user-side* escape pattern in clients like NETLINK,
+  where '@' was the configurable local escape character, NOT the
+  PAD-level recall. Deviation flag removed; no code change.
+
+### Verified
+
+- 774 tests still pass after the overlay updates — existing tests
+  verify behaviours, not exact X.3 default values.
+
+[1.3.1]: https://example.invalid/padawan-lite/releases/tag/v1.3.1
+
 ## [1.3.0] — 2026-05-26
 
 ### Added

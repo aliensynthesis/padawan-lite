@@ -612,26 +612,32 @@ Each item names the spec clauses that govern it.
     - 'H' field hex-pair decoding (captured verbatim, not decoded
       to bytes).
 
-[2026-05-25] src/personality.c - Telenet personality recall character (param 1)
-  Telenet documentation specifies that users return to Telenet command
-  mode by typing "CR @ CR". Per X.28 §3.2.1.5 / X.3 §3.1.1 the active
-  byte in that sequence is "@" (IA5 0x40); the framing CRs are
-  user-side cleanup. This means authentic Telenet set X.3 param 1
-  (PAD recall character) to 64.
+[2026-05-25 / amended 2026-05-29] src/personality.c - Telenet personality
+  recall character (param 1) -- NO LONGER A DEVIATION
+  Original entry (now superseded): inferred from Telenet user-doc
+  "CR @ CR" pattern that authentic Telenet set X.3 param 1 to 64
+  ('@'), and that we were deviating by keeping DLE / Ctrl-P for
+  modern usability reasons.
 
-  The TELENET_PROFILE_OVERLAY in src/personality.c intentionally does
-  NOT set param 1 to 64. It leaves the simple-profile default
-  (param 1 = 1, DLE / Ctrl-P) so that "@" can flow through to the
-  host as a literal character. Reason: "@" is ubiquitous in modern
-  computing (email addresses, vi commands, shell paths). Faithful
-  Telenet recall would intercept every "@" typed in data-transfer
-  state. Real Telenet users worked around this with "SET 1:0" or
-  "SET 1:16" mid-session; v1.3 chooses modern convenience over
-  historical faithfulness for this single parameter.
+  Amended 2026-05-29 after examining Prime Computer's NETLINK X.25
+  client source (X.25SRC>NETLINK>X3_INIT.INS.PL1, c.1988): Telenet
+  PADs actually set X.3 param 1 to 1 (DLE / Ctrl-P), matching the
+  simple-profile default and matching what we already had. The
+  Telenet T30 "abort character" was also 0x10 (DLE), corroborating.
 
-  Users wanting authentic Telenet recall behaviour can issue
-  "SET 1:64" once the session is up; the change is per-session and
-  does not require rebuilding.
+  The "CR @ CR" sequence in the Telenet user doc was the escape
+  pattern of user-side X.25 clients (such as NETLINK), where '@'
+  was the configurable local escape character to bail out of the
+  remote session and return to the local client's '@' prompt.
+  NETLINK's ATCIRC.SPL documents this verbatim:
+
+    "At any point during your remote login session, you can escape
+     from the remote system and summon the NETLINK @ prompt. To do
+     this, type @ alone on a line and press RETURN."
+
+  So our choice of DLE for recall is now confirmed as both
+  modern-usability-friendly AND historically accurate. The deviation
+  flag is removed. No code change.
 
 [2026-05-26] include/x28_signals.h, src/x28_signals.c - personality
   command-alias mechanism (parser extension)
@@ -752,3 +758,54 @@ Each item names the spec clauses that govern it.
   Telenet mapping data is available; bit-for-bit faithful mappings
   (D1, A1, T1...) would require primary-source manuals. Empty
   response (just CR) is acceptable and stored as the empty string.
+
+[2026-05-29] src/personality.c - Telenet personality X.3 overlay sourced
+  from Prime NETLINK
+  Four TELENET_PROFILE_OVERLAY entries updated from best-effort
+  guesses to authoritative values cross-referenced against Prime
+  Computer's NETLINK X.25 client source
+  (X.25SRC>NETLINK>X3_INIT.INS.PL1, c.1988). NETLINK had to
+  interoperate with production Telenet service so its initialiser
+  block is the closest thing to a primary-source reference outside
+  of GTE's operator manuals.
+
+  Changed values (Telenet personality only; default and Tymnet
+  unchanged):
+
+    param  7  (break action):   2     -> 21
+                                (was "reset"; now "discard output +
+                                 send indication of break + interrupt"
+                                 per NETLINK)
+    param 13  (lf_insert):      KEEP  -> 4
+                                (NETLINK: 4 = LF echo to DTE)
+    param 16  (cdel):           KEEP  -> 127
+                                (NETLINK: 127 = DEL.
+                                 Was inheriting simple-profile 8 = BS.
+                                 Real Telenet expected DEL for char
+                                 delete.)
+    param 19  (esig):           KEEP  -> 1
+                                (NETLINK: 1 = editing PAD service
+                                 signals enabled)
+
+  Three remaining mismatches deliberately NOT applied in this pass
+  (they each carry larger design/UX implications, deferred):
+
+    param  3  (forward):  NETLINK uses 126 (forward on every
+                          standard condition); we still use 2
+                          (CR only). Significant UX change.
+    param  6  (signals):  NETLINK uses 1 (no prompt bit); we still
+                          use 5. Our prompt-emission logic gates on
+                          param 6 bit 2; aligning to NETLINK would
+                          require decoupling the prompt emission
+                          from the X.3 param.
+    Telenet extended X.3 params (T13, T17, T18, T30, T36):
+                          NETLINK has these in a separate Telenet
+                          extension block. We don't model the
+                          extension namespace at all yet; would be
+                          a future Telenet-specific X.3 module.
+
+  Test impact: all 774 existing tests pass unchanged -- they verify
+  behaviours not exact X.3 default values, so the overlay updates
+  don't affect them. Users of --emulate telenet will see different
+  edit characters (DEL vs BS), different break semantics, and a
+  LF echo after each CR.
