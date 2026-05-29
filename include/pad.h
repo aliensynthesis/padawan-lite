@@ -349,7 +349,7 @@ void pad_set_identification(pad_session_t *p, const char *text);
    reached us at (e.g. "127.0.0.1:30099"). The address is emitted on
    the line after the PAD identification banner ONLY when the active
    personality opts in via the personality's emit_address field
-   (Telenet does; default and Tymnet do not). The string is copied
+   (Telenet does; the default personality does not). The string is copied
    into the session (truncated to PAD_ADDRESS_MAX). Pass NULL or ""
    to clear. */
 void pad_set_address(pad_session_t *p, const char *text);

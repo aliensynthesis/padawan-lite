@@ -16,7 +16,7 @@ packet-switched era.
 ## Features
 
 - **ITU-T X.28 / X.3 / X.29 compliant.** Every command, every
-  parameter, every service signal from the standard. 774 unit tests
+  parameter, every service signal from the standard. 768 unit tests
   cite the spec clauses they exercise; every known deviation is
   recorded in [`deviations.txt`](deviations.txt).
 - **Two run modes.** Single session over stdin/stdout for an
@@ -47,8 +47,8 @@ packet-switched era.
   NUI prompt, service-signal text, X.3 profile overlay,
   network-specific command synonyms, handshake conventions, and
   PAD-recall semantics) to recreate historical PSPDN PAD
-  experiences. Ships with `default` (X.28-standard), `telenet`,
-  and `tymnet` personalities. The Telenet personality includes the
+  experiences. Ships with `default` (X.28-standard) and `telenet`
+  personalities. The Telenet personality includes the
   documented two-CR handshake, the `TERMINAL=` prompt, `<address>
   CONNECTED` / `<address> DISCONNECTED` signal formatting,
   multi-shot PAD recall with explicit `CONTINUE`, and command
@@ -67,7 +67,7 @@ Linux with GCC 11+ and GNU make:
 
 ```sh
 make            # builds padawan-lite binary, libpadawancore.a, and test binaries
-make test       # runs the 774-test suite (5 binaries: test_pad, test_personality, test_x28_signals, test_x29_messages, test_x3)
+make test       # runs the 768-test suite (5 binaries: test_pad, test_personality, test_x28_signals, test_x29_messages, test_x3)
 ./padawan-lite -h  # CLI usage summary
 ```
 
@@ -122,7 +122,7 @@ followed by `30001<CR>` (session-level NUI).
 | `--trace-prefix PREFIX`       | Override `--trace` filename prefix (implies `--trace`)            |
 | `--trace-line-mode`           | Consolidate CLIENT entries by CR (implies `--trace`)              |
 | `--pcp-port PORT`             | PAD Control Protocol listener on `127.0.0.1:PORT` (`0` = off)     |
-| `--emulate NAME`              | PAD personality: `default` (X.28), `telenet`, `tymnet`            |
+| `--emulate NAME`              | PAD personality: `default` (X.28), `telenet`                      |
 | `-h`, `--help`                | Show usage                                                        |
 
 See [`QUICKREF.md`](QUICKREF.md) for the full reference card —
@@ -221,7 +221,7 @@ $ make test
 ==> tests/test_pad
 ok 252/252
 ==> tests/test_personality
-ok 118/118
+ok 112/112
 ==> tests/test_x28_signals
 ok 261/261
 ==> tests/test_x29_messages

@@ -809,3 +809,55 @@ Each item names the spec clauses that govern it.
   don't affect them. Users of --emulate telenet will see different
   edit characters (DEL vs BS), different break semantics, and a
   LF echo after each CR.
+
+[2026-05-29] src/personality.c - Tymnet personality REMOVED in v1.4.0
+  The "tymnet" personality (added in v1.2.0) is removed in v1.4.0.
+
+  Reason: Tymnet's actual implementation -- in both its
+  Tymshare-era and later McDonnell Douglas / BT North America
+  incarnations -- proved to be too technically disjoint from the
+  X.28 / X.29 conventions that the personality system is shaped
+  around. Tymnet was effectively a separate end-to-end
+  asynchronous protocol family with its own network layer, its
+  own framing, its own session-establishment dance, and its own
+  command surface that did not map cleanly onto X.3 parameter
+  overlays + X.28 service-signal text overrides.
+
+  Producing a user-visible Tymnet personality accurate enough to
+  justify the name would have required morphing the existing PAD
+  core well beyond the "X.28-with-overrides" model. That distortion
+  was not a worthwhile trade for an exhibit-grade personality, and
+  retaining a placeholder Tymnet personality whose data tables were
+  best-effort reconstruction (as the v1.2 VERIFY notes flagged)
+  perpetuated a misleading impression that Padawan-Lite spoke
+  Tymnet.
+
+  Changes:
+  - src/personality.c: removed TYMNET_CLR_TEXT, TYMNET_PROFILE_OVERLAY,
+    PERSONALITY_TYMNET, and the REGISTRY entry.
+  - include/personality.h, include/pad.h, bridge/main.c: removed
+    "tymnet" from documentation strings and the --emulate usage list.
+  - tests/test_personality.c: removed the four Tymnet-specific
+    test functions; updated test_lookup_known to assert that
+    "tymnet" now returns NULL (regression guard against accidental
+    re-addition with placeholder data); renamed
+    test_default_and_tymnet_have_no_command_aliases to
+    test_default_has_no_command_aliases.
+  - README.md, QUICKREF.md: removed "tymnet" from the personality
+    list. PCP_GUIDE.md retains a historical mention of Tymnet as
+    one of the real PSPDNs (Telenet, Tymnet, Datapac, Transpac);
+    that reference is factual context, not a Padawan-Lite feature
+    claim.
+
+  This is a deliberate scope contraction: the personality system
+  is for PADs that fit the X.28/X.29 mould. Networks whose user
+  experience derived from outside that mould (Tymnet, and per the
+  Datapac analysis in [[project-datapac-deferred]] potentially
+  others) belong to a different category that this codebase does
+  not attempt to model.
+
+  Revisit criterion: a Tymnet personality could be re-added only
+  if (a) authoritative Tymnet user-side or PAD-side documentation
+  surfaced AND (b) the actual behaviour turned out to be more
+  X.28-shaped than the available historical record suggests. The
+  bar is high; this removal should not be reversed casually.

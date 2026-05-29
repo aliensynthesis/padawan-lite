@@ -72,8 +72,9 @@ static void test_lookup_default(void)
 static void test_lookup_known(void)
 {
     ASSERT_TRUE(personality_by_name("telenet") != NULL);
-    ASSERT_TRUE(personality_by_name("tymnet") != NULL);
     ASSERT_TRUE(strcmp(personality_by_name("telenet")->name, "telenet") == 0);
+    /* "tymnet" was removed in v1.4.0; lookup must now return NULL. */
+    ASSERT_TRUE(personality_by_name("tymnet") == NULL);
 }
 
 static void test_lookup_unknown_returns_null(void)
@@ -116,17 +117,6 @@ static void test_telenet_personality_replaces_err(void)
     /* CLR with no active call -> ERR signal. Telenet uses "?". */
     pad_input_dte(&pad, (const uint8 *)"CLR\r", 4);
     ASSERT_TRUE(contains("?"));
-}
-
-static void test_tymnet_personality_replaces_stat(void)
-{
-    pad_session_t pad;
-    reset_io();
-    pad_init(&pad, X3_PROFILE_SIMPLE, cb_dte, cb_remote, NULL);
-    pad_set_personality(&pad, personality_by_name("tymnet"));
-    pad_input_dte(&pad, (const uint8 *)"STAT\r", 5);
-    ASSERT_TRUE(contains("ready"));
-    ASSERT_TRUE(!contains("FREE"));
 }
 
 static void test_profile_overlay_applies(void)
@@ -193,18 +183,6 @@ static void test_telenet_prompt_char_visible(void)
     ASSERT_TRUE(contains("@"));
 }
 
-static void test_tymnet_prompt_char_visible(void)
-{
-    pad_session_t pad;
-    reset_io();
-    /* Tymnet doesn't override prompt_char so it stays '*', but the
-       prompt bit MUST be on for the user to see any prompt at all. */
-    pad_init_handshake(&pad, X3_PROFILE_SIMPLE, cb_dte, cb_remote, NULL);
-    pad_set_personality(&pad, personality_by_name("tymnet"));
-    pad_input_dte(&pad, (const uint8 *)"\r", 1);
-    ASSERT_TRUE(contains("*"));
-}
-
 static void test_banner_set_by_personality(void)
 {
     pad_session_t pad;
@@ -237,12 +215,11 @@ static void test_telenet_command_aliases_present(void)
     ASSERT_TRUE(saw_disconnect);
 }
 
-static void test_default_and_tymnet_have_no_command_aliases(void)
+static void test_default_has_no_command_aliases(void)
 {
-    /* Aliases are Telenet-specific; the default and Tymnet
-       personalities must not publish any. */
+    /* Aliases are Telenet-specific; the default personality must
+       not publish any. */
     ASSERT_TRUE(personality_by_name("default")->command_aliases == NULL);
-    ASSERT_TRUE(personality_by_name("tymnet")->command_aliases == NULL);
 }
 
 static void test_telenet_c_alias_with_space_dispatches_call(void)
@@ -442,17 +419,6 @@ static void test_default_personality_no_terminal_prompt(void)
     ASSERT_EQ_INT(pad.state, PAD_STATE_PAD_WAITING);
     ASSERT_TRUE(!contains("TERMINAL="));
     ASSERT_TRUE(contains("PADAWAN-LITE v1.2"));
-}
-
-static void test_tymnet_handshake_still_single_cr(void)
-{
-    pad_session_t pad;
-    reset_io();
-    pad_init_handshake(&pad, X3_PROFILE_SIMPLE, cb_dte, cb_remote, NULL);
-    pad_set_personality(&pad, personality_by_name("tymnet"));
-    pad_input_dte(&pad, (const uint8 *)"\r", 1);
-    ASSERT_EQ_INT(pad.state, PAD_STATE_PAD_WAITING);
-    ASSERT_TRUE(contains("please log in:"));
 }
 
 static void test_telenet_connected_includes_called_address(void)
@@ -795,16 +761,14 @@ int main(void)
     test_default_personality_is_passthrough();
     test_telenet_personality_replaces_stat();
     test_telenet_personality_replaces_err();
-    test_tymnet_personality_replaces_stat();
     test_profile_overlay_applies();
     test_profile_overlay_skips_speed_param();
     test_nui_prompt_text_overridden();
     test_personality_null_reverts_to_default();
     test_telenet_prompt_char_visible();
-    test_tymnet_prompt_char_visible();
     test_banner_set_by_personality();
     test_telenet_command_aliases_present();
-    test_default_and_tymnet_have_no_command_aliases();
+    test_default_has_no_command_aliases();
     test_telenet_c_alias_with_space_dispatches_call();
     test_telenet_C_alias_with_space_dispatches_call();
     test_telenet_c_no_space_does_not_match_alias();
@@ -823,7 +787,6 @@ int main(void)
     test_telenet_terminal_prompt_accepts_empty();
     test_telenet_terminal_prompt_truncates_overflow();
     test_default_personality_no_terminal_prompt();
-    test_tymnet_handshake_still_single_cr();
     test_recall_in_data_transfer_emits_prompt();
     test_telenet_continue_alias_returns_to_data_transfer();
     test_telenet_cont_short_form_returns_to_data_transfer();

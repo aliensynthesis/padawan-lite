@@ -4,6 +4,58 @@ All notable changes to Padawan-Lite are recorded here. The format
 follows [Keep a Changelog](https://keepachangelog.com/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.4.0] — 2026-05-29
+
+### Removed
+
+- **Tymnet personality removed.** `--emulate tymnet` is no longer
+  recognised; `personality_by_name("tymnet")` now returns NULL.
+
+  Rationale: Tymnet's actual implementation — in both its
+  Tymshare-era and later McDonnell Douglas / BT North America
+  incarnations — proved to be too technically disjoint from the
+  X.28 / X.29 conventions that the personality system is shaped
+  around. Tymnet was effectively a separate end-to-end
+  asynchronous protocol family with its own network layer, its
+  own framing, its own session-establishment dance, and a
+  command surface that did not map cleanly onto X.3 parameter
+  overlays + X.28 service-signal text overrides. Producing a
+  user-visible Tymnet personality accurate enough to justify
+  the name would have required morphing the existing PAD core
+  well beyond the "X.28-with-overrides" model. Keeping a
+  placeholder Tymnet personality whose data tables were
+  best-effort reconstruction (as the v1.2 VERIFY notes flagged)
+  perpetuated a misleading impression that Padawan-Lite spoke
+  Tymnet.
+
+  Affected files: `src/personality.c` (removed `TYMNET_*` tables
+  and registry entry), `include/personality.h`, `include/pad.h`,
+  `bridge/main.c` (removed from documentation and the
+  `--emulate` usage list), `tests/test_personality.c` (removed
+  four Tymnet-specific tests; updated `test_lookup_known` to
+  assert `tymnet` returns NULL as a regression guard),
+  `README.md`, `QUICKREF.md`. `PCP_GUIDE.md` retains a
+  historical mention of Tymnet as one of the real PSPDNs —
+  that's factual context, not a feature claim.
+
+  See `deviations.txt` [2026-05-29] for the full rationale and
+  the criteria for ever revisiting.
+
+### Test count
+
+- 768 tests pass (was 774; six Tymnet-specific tests removed).
+
+### Note on versioning
+
+This is a breaking change for any consumer scripting
+`--emulate tymnet`. By strict semver this would warrant a
+2.0.0 bump; we keep the 1.x line because Tymnet's inclusion
+in v1.2 was always flagged as best-effort and the removal
+restores the personality system to its intended scope
+(X.28-shaped PADs only).
+
+[1.4.0]: https://example.invalid/padawan-lite/releases/tag/v1.4.0
+
 ## [1.3.1] — 2026-05-29
 
 ### Changed

@@ -28,17 +28,24 @@
 
 /* PAD personality registry.
 
-   VERIFY: The Telenet and Tymnet personality data below is a
-   best-effort reconstruction from general historical knowledge of
-   1970s/80s PSPDN PAD behaviour. Specific strings ("BUSY",
-   "PLEASE LOG IN:", "NETWORK CONGESTION", etc.) have not been
-   verified against primary-source operator manuals; they were
-   populated to give the personality system a useful initial shape
-   for exhibit-style work. Anyone targeting bit-for-bit Telenet or
-   Tymnet fidelity should consult the original GTE Telenet /
-   Tymshare manuals (see bitsavers.org and archive.org) and submit
-   corrections. The X.28-standard "default" personality below is
-   accurate per ITU-T X.28 (12/97). */
+   The "default" personality below is accurate per ITU-T X.28 (12/97).
+
+   The "telenet" personality's X.3 parameter overlay was sourced for
+   v1.3.1 from Prime Computer's NETLINK X.25 client
+   (X.25SRC>NETLINK>X3_INIT.INS.PL1, c.1988), which had to
+   interoperate with production Telenet service. Other Telenet
+   surface elements (banner, clear-cause text, command synonyms,
+   handshake conventions) are documented either from Telenet user
+   manuals (see [2026-05-25..-29] entries in deviations.txt) or
+   flagged with VERIFY markers where the source is still
+   reconstructive.
+
+   A Tymnet personality was deliberately removed in v1.4.0; see
+   deviations.txt for rationale. Tymnet's actual implementation
+   diverged too far from the X.28/X.29 conventions for the
+   personality system (which is fundamentally an X.28-shaped
+   override layer) to express faithfully without distorting the
+   PAD core. */
 
 #include "personality.h"
 #include "pad.h"
@@ -245,90 +252,15 @@ static const personality_t PERSONALITY_TELENET = {
                                           configure X.3 params */
 };
 
-/* ------------------------------------------------------------------------- */
-/* tymnet personality (best-effort; see VERIFY note at top of file)          */
-/* ------------------------------------------------------------------------- */
+/* Tymnet personality intentionally removed in v1.4.0.
 
-/* VERIFY: Tymnet's PAD used a "please log in:" prompt at session
-   start and was reached by typing a particular trigger character
-   ('a' or 'A') so the network could autodetect line speed and
-   parity. Tymnet's signal text was more verbose than Telenet's. */
-static const char *const TYMNET_CLR_TEXT[PERSONALITY_CLR_CAUSE_COUNT] = {
-    "host busy",                       /* 0  OCC  VERIFY */
-    "network congested",               /* 1  NC   VERIFY */
-    "invalid request",                 /* 2  INV  VERIFY */
-    "access denied",                   /* 3  NA   VERIFY */
-    "local error",                     /* 4  ERR  VERIFY */
-    "remote error",                    /* 5  RPE  VERIFY */
-    "host not available",              /* 6  NP   VERIFY */
-    "host down",                       /* 7  OOO  VERIFY */
-    "disconnected by host",            /* 8  DTE  VERIFY */
-    "host device error",               /* 9  DER  VERIFY */
-    "reverse charging refused",        /* 10 RCH  VERIFY */
-    "incompatible destination",        /* 11 ID   VERIFY */
-    "ship not contacted",              /* 12 SHN  VERIFY */
-    "fast select refused",             /* 13 FNA  VERIFY */
-    "cannot route call"                /* 14 RNA  VERIFY */
-};
-
-/* Tymnet's PAD defaults favoured line-mode editing. VERIFY against
-   original Tymshare documentation. */
-static const uint8 TYMNET_PROFILE_OVERLAY[X3_PAR_MAX + 1] = {
-    0,                            /* 0  unused */
-    PERSONALITY_KEEP,             /* 1  recall */
-    1,                            /* 2  echo on */
-    2,                            /* 3  forward on CR (VERIFY) */
-    PERSONALITY_KEEP,             /* 4  idle */
-    1,                            /* 5  device */
-    5,                            /* 6  signals: standard (1) + prompt bit (4) */
-    2,                            /* 7  break */
-    PERSONALITY_KEEP,             /* 8  discard */
-    PERSONALITY_KEEP,             /* 9  cr_pad */
-    PERSONALITY_KEEP,             /* 10 fold */
-    PERSONALITY_KEEP,             /* 11 speed */
-    1,                            /* 12 flow */
-    PERSONALITY_KEEP,             /* 13 lf_insert */
-    PERSONALITY_KEEP,             /* 14 lf_pad */
-    1,                            /* 15 edit ON (Tymnet line-mode VERIFY) */
-    PERSONALITY_KEEP,             /* 16 cdel */
-    PERSONALITY_KEEP,             /* 17 ldel */
-    PERSONALITY_KEEP,             /* 18 ldis */
-    PERSONALITY_KEEP,             /* 19 esig */
-    PERSONALITY_KEEP,             /* 20 mask */
-    PERSONALITY_KEEP,             /* 21 parity */
-    PERSONALITY_KEEP,             /* 22 page */
-    PERSONALITY_KEEP, PERSONALITY_KEEP, PERSONALITY_KEEP, PERSONALITY_KEEP,
-    PERSONALITY_KEEP, PERSONALITY_KEEP, PERSONALITY_KEEP, PERSONALITY_KEEP
-};
-
-static const personality_t PERSONALITY_TYMNET = {
-    "tymnet",
-    "please log in:",                  /* VERIFY */
-    0,                                 /* prompt_char: keep '*' (VERIFY) */
-    "user name:",                      /* NUI prompt: VERIFY */
-    "host connected",                  /* COM (VERIFY) */
-    "ready",                           /* FREE (VERIFY) */
-    "in session",                      /* ENGAGED (VERIFY) */
-    "command error",                   /* ERR (VERIFY) */
-    NULL,                              /* clr_confirm_text: default
-                                          "CLR CONF" */
-    {
-        TYMNET_CLR_TEXT[0],  TYMNET_CLR_TEXT[1],  TYMNET_CLR_TEXT[2],
-        TYMNET_CLR_TEXT[3],  TYMNET_CLR_TEXT[4],  TYMNET_CLR_TEXT[5],
-        TYMNET_CLR_TEXT[6],  TYMNET_CLR_TEXT[7],  TYMNET_CLR_TEXT[8],
-        TYMNET_CLR_TEXT[9],  TYMNET_CLR_TEXT[10], TYMNET_CLR_TEXT[11],
-        TYMNET_CLR_TEXT[12], TYMNET_CLR_TEXT[13], TYMNET_CLR_TEXT[14]
-    },
-    TYMNET_PROFILE_OVERLAY,
-    NULL,                              /* command_aliases: none yet */
-    0,                                 /* emit_address: off */
-    1,                                 /* handshake_acks_needed: 1 CR */
-    0,                                 /* prefix_called_address_on_call_signals:
-                                          off */
-    0,                                 /* keep_command_mode_after_recall:
-                                          X.28 one-shot */
-    NULL                               /* terminal_type_prompt: none */
-};
+   Rationale: Tymnet's actual implementation proved to be too
+   technically disjoint from the X.28 / X.29 heritage that the
+   personality system models. Building a Tymnet personality
+   without distorting the PAD core would have required morphing
+   the existing code beyond what was reasonable for an X.28-
+   shaped override layer. See deviations.txt for the full
+   rationale and the criteria for ever revisiting. */
 
 /* ------------------------------------------------------------------------- */
 /* registry + lookup                                                         */
@@ -337,7 +269,6 @@ static const personality_t PERSONALITY_TYMNET = {
 static const personality_t *const REGISTRY[] = {
     &PERSONALITY_DEFAULT,
     &PERSONALITY_TELENET,
-    &PERSONALITY_TYMNET,
     NULL
 };
 

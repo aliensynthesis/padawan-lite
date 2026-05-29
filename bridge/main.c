@@ -919,7 +919,7 @@ static void usage(const char *argv0)
         "      --pcp-port <port>    PAD Control Protocol listener"
                                  " (localhost; 0 = off)\n"
         "      --emulate <name>     PAD personality"
-                                 " (default, telenet, tymnet)\n"
+                                 " (default, telenet)\n"
         "  -h, --help               this help\n"
         "  Default: single session over stdin/stdout.\n");
 }
@@ -996,7 +996,7 @@ int main(int argc, char **argv)
             if (g_personality == NULL) {
                 fprintf(stderr,
                         "unknown personality '%s' "
-                        "(try default, telenet, tymnet)\n", argv[ai]);
+                        "(try default, telenet)\n", argv[ai]);
                 return 2;
             }
         } else if (strcmp(argv[ai], "--pcp-port") == 0) {

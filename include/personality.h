@@ -43,8 +43,9 @@
    the "default" personality is just an all-NULL table — useful as
    a baseline and as the result when no --emulate flag is given.
 
-   See src/personality.c for the built-in tables (default, telenet,
-   tymnet) and the lookup function. */
+   See src/personality.c for the built-in tables (default, telenet)
+   and the lookup function. A tymnet personality was removed in
+   v1.4.0; see deviations.txt for the rationale. */
 #ifndef PADAWAN_PERSONALITY_H
 #define PADAWAN_PERSONALITY_H
 
@@ -109,7 +110,7 @@ typedef struct personality {
        NULL pointer = no overlay. Index 0 is unused; an entry of 0xFF
        in another slot means "leave the profile default in place."
        This lets a personality enforce its own preferred PAD settings
-       (e.g. Tymnet's typical CR-only forwarding) without requiring
+       (e.g. Telenet's profile-D1 conventions) without requiring
        the user to also pass --telnet-defaults. */
     const uint8 *profile_overlay;
 
@@ -139,7 +140,7 @@ typedef struct personality {
        the first CR holds in DTE_WAITING (autobaud-equivalent
        acknowledgement, silent on the wire), the second CR finishes
        the transition and emits the banner + prompt. Telenet's user
-       documentation specifies the two-CR form; default and Tymnet
+       documentation specifies the two-CR form; default
        keep the single-CR behaviour. */
     uint8 handshake_acks_needed;
 
@@ -159,7 +160,7 @@ typedef struct personality {
        session stays in command mode and emits a fresh prompt
        instead of auto-returning to DATA_TRANSFER. The user issues
        an explicit CONTINUE / CONT to go back to the call. Matches
-       Telenet's documented behaviour. When 0 (default and Tymnet),
+       Telenet's documented behaviour. When 0 (default),
        the X.28 §3.2.1.5 one-shot recall behaviour applies: any
        command in WAITING_FOR_CMD auto-returns to DATA_TRANSFER. */
     uint8 keep_command_mode_after_recall;

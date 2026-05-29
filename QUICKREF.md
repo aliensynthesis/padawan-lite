@@ -21,7 +21,7 @@ padawan-lite [-c FILE] [-l PORT] [-a FILE] [-t] [-b BPS]
 | `--trace-prefix PREFIX`    | Override `--trace` filename prefix (implies `--trace`)   |
 | `--trace-line-mode`        | CLIENT entries flush on CR; SERVICE pairs with each line |
 | `--pcp-port PORT`          | PAD Control Protocol listener on `127.0.0.1:PORT`        |
-| `--emulate NAME`           | PAD personality: `default` (X.28), `telenet`, `tymnet`   |
+| `--emulate NAME`           | PAD personality: `default` (X.28), `telenet`             |
 
 Under `--emulate telenet`, the PAD also recognises these synonyms:
 `CONNECT`/`C` for CALL, `DISCONNECT`/`D` for CLR, `CONT`/`CONTINUE`
