@@ -56,6 +56,24 @@ typedef enum {
     UT_IN_SB_AFTER_IAC
 } user_telnet_iac_t;
 
+/* RFC 1143 Q-method per-option agreement states. NO/YES are the
+   stable agreed states; WANTYES/WANTNO are the "request pending"
+   states between a WILL/DO and its DO/WILL acknowledgement. We
+   track WANTYES_OPPOSITE-style sub-states implicitly via Q_WANTNO
+   because padawan-lite never reverses its mind mid-negotiation. */
+typedef enum {
+    Q_NO       = 0,
+    Q_YES      = 1,
+    Q_WANTYES  = 2,
+    Q_WANTNO   = 3
+} user_telnet_q_t;
+
+/* Option index range we maintain Q-state for: options 0..31. This
+   covers BINARY (0), ECHO (1), SGA (3), TTYPE (24), NAWS (31).
+   Requests for options outside this range get a stateless refusal
+   (DONT/WONT) to keep memory bounded. */
+#define UT_OPT_TABLE 32
+
 typedef struct {
     int               fd;
     user_telnet_iac_t state;
@@ -66,6 +84,14 @@ typedef struct {
     int               has_naws;
     uint16            naws_width;
     uint16            naws_height;
+    user_telnet_q_t   us[UT_OPT_TABLE];   /* per-option: are WE doing it? */
+    user_telnet_q_t   him[UT_OPT_TABLE];  /* per-option: is PEER doing it? */
+    /* RFC 854 line-ending normalisation state. Set when the most
+       recent emitted data byte was CR; on the next byte, an LF or
+       NUL is recognised as the CR LF / CR NUL sequence and dropped
+       so the PAD core sees a bare CR (X.28 §3.5.1 command
+       delimiter is CR alone). Carries across read() boundaries. */
+    int               last_was_cr;
 } user_telnet_t;
 
 /* Reset state and remember the user socket fd. */

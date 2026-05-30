@@ -4,6 +4,68 @@ All notable changes to Padawan-Lite are recorded here. The format
 follows [Keep a Changelog](https://keepachangelog.com/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.4.2] — 2026-05-30
+
+### Fixed
+
+- **Telnet negotiation loop with stateless peers.** Both
+  `bridge/user_telnet.c` (PAD-facing) and `bridge/x25_telnet_bridge.c`
+  (host-facing) previously implemented Telnet option negotiation
+  without per-option state: every incoming `WILL`/`DO` triggered
+  the policy-driven reply unconditionally, and every outgoing
+  `WILL`/`DO` was sent unconditionally. Against a stateless peer
+  (observed with `tcpser`) this produced a non-terminating
+  exchange: each side faithfully mirrored the other's previous
+  cluster of negotiations forever. Both sides now implement the
+  RFC 1143 "Q method" state machine
+  (`Q_NO`/`Q_YES`/`Q_WANTYES`/`Q_WANTNO`) per `(option, direction)`,
+  with state stored on the existing `user_telnet_t` /
+  `bridge_call_t` structures. The cardinal loop-breaker rule:
+  receiving the expected `DO`/`WILL` reply to a pending
+  `WANTYES` transitions to `YES` with no further reply. Redundant
+  re-offers from a buggy peer are now silently absorbed.
+
+  Side effect: `send_initial_negotiation` in
+  `bridge/x25_telnet_bridge.c` no longer emits `DONT ECHO` and
+  `WONT ECHO`. These were redundant per RFC 1143 — both sides
+  start at `Q_NO` for ECHO, so a `DONT`/`WONT` is a no-op for the
+  receiver. If a host now offers `WILL ECHO` unsolicited it gets
+  the same `DONT ECHO` refusal as before via `policy_him_bridge`.
+
+- **RFC 854 line-ending normalisation in `user_telnet_filter`.**
+  The PAD core's command parser treats CR (or `+`) as the sole
+  command delimiter (X.28 §3.5.1) and was buffering any LF that
+  immediately followed CR as the leading byte of the next
+  command, causing the next non-empty command to parse-fail.
+  Telnet clients per RFC 854 send CR LF for "newline" and CR NUL
+  for "carriage return alone." `user_telnet_filter` now tracks
+  `last_was_cr` across read() boundaries and drops the trailing
+  LF / NUL of either sequence. Standalone LFs (no preceding CR)
+  still pass through so a user can transmit LF as data to a
+  host. The bare-CR command delimiter at the @ prompt is
+  unchanged.
+
+### Verified
+
+- New `tests/test_user_telnet` (17 assertions) drives a
+  reproduction of the tcpser-shape exchange and asserts (a)
+  initial cluster is exactly 18 bytes, (b) the peer's ack cluster
+  produces zero reply bytes, (c) a duplicated ack cluster still
+  produces zero reply bytes (the loop-breaker condition),
+  (d) a refused option (`WILL ECHO`) gets exactly one
+  `IAC DONT ECHO`, (e) `send_initial` is idempotent, (f) the
+  reversed startup (peer offers first) converges in one round,
+  and (g) the line-ending normalisation correctly drops the LF
+  of CR LF, the NUL of CR NUL, preserves standalone LFs, carries
+  CR LF straddled across two filter calls, and treats a literal
+  0xFF (IAC IAC) between CR and LF as breaking the CR-trailing
+  relationship.
+- All previous tests still pass (`test_pad` 120/120,
+  `test_personality` 9/9, `test_x28_signals` 261/261,
+  `test_x29_messages` 73/73, `test_x3` 70/70).
+
+[1.4.2]: https://example.invalid/padawan-lite/releases/tag/v1.4.2
+
 ## [1.4.1] — 2026-05-29
 
 ### Added

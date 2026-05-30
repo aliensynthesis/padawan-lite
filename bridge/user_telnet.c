@@ -54,6 +54,49 @@ void user_telnet_init(user_telnet_t *t, int fd)
     t->state = UT_NORMAL;
 }
 
+/* Write a 3-byte IAC verb-option sequence. */
+static void write_iac3(int fd, uint8 verb, uint8 option)
+{
+    uint8 buf[3];
+    if (fd < 0) return;
+    buf[0] = TELNET_IAC;
+    buf[1] = verb;
+    buf[2] = option;
+    (void)!write(fd, buf, 3);
+}
+
+/* Policy: which options do WE want to enable (drives our WILL/WONT)? */
+static int policy_us(uint8 option)
+{
+    return (option == OPT_ECHO || option == OPT_BINARY || option == OPT_SGA);
+}
+
+/* Policy: which options do we want the PEER to enable (drives our DO/DONT)? */
+static int policy_him(uint8 option)
+{
+    return (option == OPT_BINARY || option == OPT_SGA || option == OPT_NAWS);
+}
+
+/* Q-method: send WILL only if we are not already in YES or WANTYES.
+   See RFC 1143 §"The Q Method of Implementing TELNET Option
+   Negotiation": this gate is what prevents a stateless peer from
+   driving us into an infinite negotiation loop. */
+static void send_will(user_telnet_t *t, uint8 option)
+{
+    if (option >= UT_OPT_TABLE) return;
+    if (t->us[option] == Q_YES || t->us[option] == Q_WANTYES) return;
+    t->us[option] = Q_WANTYES;
+    write_iac3(t->fd, TELNET_WILL, option);
+}
+
+static void send_do(user_telnet_t *t, uint8 option)
+{
+    if (option >= UT_OPT_TABLE) return;
+    if (t->him[option] == Q_YES || t->him[option] == Q_WANTYES) return;
+    t->him[option] = Q_WANTYES;
+    write_iac3(t->fd, TELNET_DO, option);
+}
+
 void user_telnet_send_initial(user_telnet_t *t)
 {
     /* As a telnet server for the user's client we want:
@@ -63,17 +106,12 @@ void user_telnet_send_initial(user_telnet_t *t)
          WILL BINARY  - 8-bit clean output
          DO   BINARY  - 8-bit clean input
          DO   NAWS    - tell us your window size if you can. */
-    static const uint8 initial[] = {
-        TELNET_IAC, TELNET_WILL, OPT_ECHO,
-        TELNET_IAC, TELNET_WILL, OPT_SGA,
-        TELNET_IAC, TELNET_DO,   OPT_SGA,
-        TELNET_IAC, TELNET_WILL, OPT_BINARY,
-        TELNET_IAC, TELNET_DO,   OPT_BINARY,
-        TELNET_IAC, TELNET_DO,   OPT_NAWS
-    };
-    if (t->fd >= 0) {
-        (void)!write(t->fd, initial, sizeof(initial));
-    }
+    send_will(t, OPT_ECHO);
+    send_will(t, OPT_SGA);
+    send_do  (t, OPT_SGA);
+    send_will(t, OPT_BINARY);
+    send_do  (t, OPT_BINARY);
+    send_do  (t, OPT_NAWS);
 }
 
 int user_telnet_get_naws(const user_telnet_t *t,
@@ -102,38 +140,103 @@ void user_telnet_write(int fd, const uint8 *data, uint32 len)
     if (j > 0) (void)!write(fd, buf, j);
 }
 
-/* Respond to a verb+option from the user (client). Policy:
-     User WILL X (client offering)
-        -> DO    for BINARY, SGA, NAWS
-        -> DONT  otherwise (including ECHO - the client must NOT echo)
-     User DO X   (client asking us to do)
-        -> WILL  for ECHO, BINARY, SGA
-        -> WONT  otherwise (including NAWS - NAWS is client->server only)
-     User WONT/DONT - no response. */
-static void respond_to(user_telnet_t *t, uint8 verb, uint8 option)
+/* Q-method state transitions for incoming WILL/WONT/DO/DONT.
+   The cardinal rule: when an incoming verb is the acknowledgement
+   of a WILL/DO we already sent (state == Q_WANTYES), we silently
+   transition to Q_YES with NO further reply. That's what kills the
+   ping-pong loop a stateless peer would otherwise sustain. */
+static void recv_will(user_telnet_t *t, uint8 option)
 {
-    uint8 reply[3];
-    reply[0] = TELNET_IAC;
-    reply[2] = option;
-    if (verb == TELNET_WILL) {
-        if (option == OPT_BINARY || option == OPT_SGA || option == OPT_NAWS) {
-            reply[1] = TELNET_DO;
-        } else {
-            reply[1] = TELNET_DONT;
-        }
-    } else if (verb == TELNET_DO) {
-        if (option == OPT_ECHO || option == OPT_BINARY ||
-            option == OPT_SGA) {
-            reply[1] = TELNET_WILL;
-        } else {
-            reply[1] = TELNET_WONT;
-        }
-    } else {
+    if (option >= UT_OPT_TABLE) {
+        write_iac3(t->fd, TELNET_DONT, option);
         return;
     }
-    if (t->fd >= 0) {
-        (void)!write(t->fd, reply, sizeof(reply));
+    switch (t->him[option]) {
+    case Q_NO:
+        if (policy_him(option)) {
+            t->him[option] = Q_YES;
+            write_iac3(t->fd, TELNET_DO, option);
+        } else {
+            write_iac3(t->fd, TELNET_DONT, option);
+        }
+        break;
+    case Q_YES:
+        break;
+    case Q_WANTYES:
+        t->him[option] = Q_YES;
+        break;
+    case Q_WANTNO:
+        t->him[option] = Q_NO;
+        break;
     }
+}
+
+static void recv_wont(user_telnet_t *t, uint8 option)
+{
+    if (option >= UT_OPT_TABLE) return;
+    switch (t->him[option]) {
+    case Q_NO:
+        break;
+    case Q_YES:
+        t->him[option] = Q_NO;
+        write_iac3(t->fd, TELNET_DONT, option);
+        break;
+    case Q_WANTYES:
+    case Q_WANTNO:
+        t->him[option] = Q_NO;
+        break;
+    }
+}
+
+static void recv_do(user_telnet_t *t, uint8 option)
+{
+    if (option >= UT_OPT_TABLE) {
+        write_iac3(t->fd, TELNET_WONT, option);
+        return;
+    }
+    switch (t->us[option]) {
+    case Q_NO:
+        if (policy_us(option)) {
+            t->us[option] = Q_YES;
+            write_iac3(t->fd, TELNET_WILL, option);
+        } else {
+            write_iac3(t->fd, TELNET_WONT, option);
+        }
+        break;
+    case Q_YES:
+        break;
+    case Q_WANTYES:
+        t->us[option] = Q_YES;
+        break;
+    case Q_WANTNO:
+        t->us[option] = Q_NO;
+        break;
+    }
+}
+
+static void recv_dont(user_telnet_t *t, uint8 option)
+{
+    if (option >= UT_OPT_TABLE) return;
+    switch (t->us[option]) {
+    case Q_NO:
+        break;
+    case Q_YES:
+        t->us[option] = Q_NO;
+        write_iac3(t->fd, TELNET_WONT, option);
+        break;
+    case Q_WANTYES:
+    case Q_WANTNO:
+        t->us[option] = Q_NO;
+        break;
+    }
+}
+
+static void respond_to(user_telnet_t *t, uint8 verb, uint8 option)
+{
+    if      (verb == TELNET_WILL) recv_will (t, option);
+    else if (verb == TELNET_WONT) recv_wont (t, option);
+    else if (verb == TELNET_DO)   recv_do   (t, option);
+    else if (verb == TELNET_DONT) recv_dont (t, option);
 }
 
 /* When SE closes a sub-negotiation, see if it was NAWS and decode. */
@@ -157,13 +260,24 @@ uint32 user_telnet_filter(user_telnet_t *t,
         case UT_NORMAL:
             if (b == TELNET_IAC) {
                 t->state = UT_AFTER_IAC;
+            } else if (t->last_was_cr && (b == 0x0A || b == 0x00)) {
+                /* RFC 854 line-ending: CR LF and CR NUL are both
+                   the network-virtual-terminal encoding of a bare
+                   CR. Drop the trailing byte so the PAD core (which
+                   uses CR alone as its command delimiter, X.28
+                   §3.5.1) doesn't see the LF as a leading byte of
+                   the next command. Standalone LF still passes
+                   through so a user can send LF as data. */
+                t->last_was_cr = 0;
             } else {
                 out[j++] = b;
+                t->last_was_cr = (b == 0x0D);
             }
             break;
         case UT_AFTER_IAC:
             if (b == TELNET_IAC) {
                 out[j++] = TELNET_IAC; /* IAC IAC = literal 0xFF */
+                t->last_was_cr = 0;
                 t->state = UT_NORMAL;
             } else if (b == TELNET_WILL || b == TELNET_WONT ||
                        b == TELNET_DO   || b == TELNET_DONT) {

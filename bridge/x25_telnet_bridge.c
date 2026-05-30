@@ -84,6 +84,21 @@ typedef enum {
     IAC_IN_SB_AFTER_IAC
 } iac_state_t;
 
+/* RFC 1143 Q-method per-option agreement states. Same shape as in
+   bridge/user_telnet.h; declared independently here so the bridge
+   directory stays a self-contained extraction unit. */
+typedef enum {
+    BQ_NO       = 0,
+    BQ_YES      = 1,
+    BQ_WANTYES  = 2,
+    BQ_WANTNO   = 3
+} bridge_q_t;
+
+/* Q-state for options 0..31 (covers BINARY=0, ECHO=1, SGA=3,
+   TTYPE=24, NAWS=31). Requests for options >= 32 are refused
+   statelessly. */
+#define BRIDGE_OPT_TABLE 32
+
 typedef struct {
     int            in_use;
     int            fd;
@@ -110,6 +125,11 @@ typedef struct {
     /* RFC 1091 TERMINAL-TYPE rotation index: how many SB TTYPE IS
        responses we've sent on this connection. */
     uint8          ttype_index;
+
+    /* RFC 1143 Q-method per-option agreement state. Required to
+       break re-offer/re-reply loops with stateless peers. */
+    bridge_q_t     us[BRIDGE_OPT_TABLE];
+    bridge_q_t     him[BRIDGE_OPT_TABLE];
 } bridge_call_t;
 
 static bridge_call_t  g_calls[BRIDGE_MAX_CALLS];
@@ -295,35 +315,157 @@ static void slot_close(bridge_call_t *s)
    immediately after agreeing WILL NAWS. */
 static void send_naws_sb(bridge_call_t *s);
 
-static void send_negotiation_response(bridge_call_t *s,
-                                      uint8 verb, uint8 option)
+/* Write a 3-byte IAC verb-option sequence on the host socket. */
+static void write_iac3_bridge(int fd, uint8 verb, uint8 option)
 {
-    uint8 reply[3];
-    reply[0] = TELNET_IAC;
-    reply[2] = option;
-    if (verb == TELNET_WILL) {
-        reply[1] = (option == TELNET_OPT_BINARY ||
-                    option == TELNET_OPT_SGA) ? TELNET_DO : TELNET_DONT;
-    } else if (verb == TELNET_DO) {
-        if (option == TELNET_OPT_BINARY ||
+    uint8 buf[3];
+    if (fd < 0) return;
+    buf[0] = TELNET_IAC;
+    buf[1] = verb;
+    buf[2] = option;
+    (void)!write(fd, buf, 3);
+}
+
+/* Policy: which options do WE agree to do for the host? */
+static int policy_us_bridge(uint8 option)
+{
+    return (option == TELNET_OPT_BINARY ||
             option == TELNET_OPT_SGA    ||
             option == TELNET_OPT_TTYPE  ||
-            option == TELNET_OPT_NAWS) {
-            reply[1] = TELNET_WILL;
-        } else {
-            reply[1] = TELNET_WONT;
-        }
-    } else {
-        return;
-    }
-    if (s->fd >= 0) {
-        (void)!write(s->fd, reply, sizeof(reply));
-    }
-    if (verb == TELNET_DO && option == TELNET_OPT_NAWS &&
-        reply[1] == TELNET_WILL) {
+            option == TELNET_OPT_NAWS);
+}
+
+/* Policy: which options do we want the host to do? */
+static int policy_him_bridge(uint8 option)
+{
+    return (option == TELNET_OPT_BINARY ||
+            option == TELNET_OPT_SGA);
+}
+
+/* Q-method gated WILL/DO senders. See user_telnet.c for the longer
+   commentary on why these matter; same shape, separate state field. */
+static void send_will_bridge(bridge_call_t *s, uint8 option)
+{
+    if (option >= BRIDGE_OPT_TABLE) return;
+    if (s->us[option] == BQ_YES || s->us[option] == BQ_WANTYES) return;
+    s->us[option] = BQ_WANTYES;
+    write_iac3_bridge(s->fd, TELNET_WILL, option);
+}
+
+static void send_do_bridge(bridge_call_t *s, uint8 option)
+{
+    if (option >= BRIDGE_OPT_TABLE) return;
+    if (s->him[option] == BQ_YES || s->him[option] == BQ_WANTYES) return;
+    s->him[option] = BQ_WANTYES;
+    write_iac3_bridge(s->fd, TELNET_DO, option);
+}
+
+/* When we transition us[NAWS] from NO/WANTYES to YES we owe the host
+   our current window dimensions as a TELNET SB. Used by both
+   send_will_bridge_with_naws (during recv_do) and the initial send. */
+static void maybe_push_naws_after_yes(bridge_call_t *s, uint8 option)
+{
+    if (option == TELNET_OPT_NAWS && s->us[option] == BQ_YES) {
         s->naws_active = 1;
         send_naws_sb(s);
     }
+}
+
+static void recv_will_bridge(bridge_call_t *s, uint8 option)
+{
+    if (option >= BRIDGE_OPT_TABLE) {
+        write_iac3_bridge(s->fd, TELNET_DONT, option);
+        return;
+    }
+    switch (s->him[option]) {
+    case BQ_NO:
+        if (policy_him_bridge(option)) {
+            s->him[option] = BQ_YES;
+            write_iac3_bridge(s->fd, TELNET_DO, option);
+        } else {
+            write_iac3_bridge(s->fd, TELNET_DONT, option);
+        }
+        break;
+    case BQ_YES:
+        break;
+    case BQ_WANTYES:
+        s->him[option] = BQ_YES;
+        break;
+    case BQ_WANTNO:
+        s->him[option] = BQ_NO;
+        break;
+    }
+}
+
+static void recv_wont_bridge(bridge_call_t *s, uint8 option)
+{
+    if (option >= BRIDGE_OPT_TABLE) return;
+    switch (s->him[option]) {
+    case BQ_NO:
+        break;
+    case BQ_YES:
+        s->him[option] = BQ_NO;
+        write_iac3_bridge(s->fd, TELNET_DONT, option);
+        break;
+    case BQ_WANTYES:
+    case BQ_WANTNO:
+        s->him[option] = BQ_NO;
+        break;
+    }
+}
+
+static void recv_do_bridge(bridge_call_t *s, uint8 option)
+{
+    if (option >= BRIDGE_OPT_TABLE) {
+        write_iac3_bridge(s->fd, TELNET_WONT, option);
+        return;
+    }
+    switch (s->us[option]) {
+    case BQ_NO:
+        if (policy_us_bridge(option)) {
+            s->us[option] = BQ_YES;
+            write_iac3_bridge(s->fd, TELNET_WILL, option);
+            maybe_push_naws_after_yes(s, option);
+        } else {
+            write_iac3_bridge(s->fd, TELNET_WONT, option);
+        }
+        break;
+    case BQ_YES:
+        break;
+    case BQ_WANTYES:
+        s->us[option] = BQ_YES;
+        maybe_push_naws_after_yes(s, option);
+        break;
+    case BQ_WANTNO:
+        s->us[option] = BQ_NO;
+        break;
+    }
+}
+
+static void recv_dont_bridge(bridge_call_t *s, uint8 option)
+{
+    if (option >= BRIDGE_OPT_TABLE) return;
+    switch (s->us[option]) {
+    case BQ_NO:
+        break;
+    case BQ_YES:
+        s->us[option] = BQ_NO;
+        write_iac3_bridge(s->fd, TELNET_WONT, option);
+        break;
+    case BQ_WANTYES:
+    case BQ_WANTNO:
+        s->us[option] = BQ_NO;
+        break;
+    }
+}
+
+static void send_negotiation_response(bridge_call_t *s,
+                                      uint8 verb, uint8 option)
+{
+    if      (verb == TELNET_WILL) recv_will_bridge (s, option);
+    else if (verb == TELNET_WONT) recv_wont_bridge (s, option);
+    else if (verb == TELNET_DO)   recv_do_bridge   (s, option);
+    else if (verb == TELNET_DONT) recv_dont_bridge (s, option);
 }
 
 static void send_terminal_type(bridge_call_t *s)
@@ -379,17 +521,18 @@ static void send_naws_sb(bridge_call_t *s)
 
 static void send_initial_negotiation(bridge_call_t *s)
 {
-    static const uint8 initial[] = {
-        TELNET_IAC, TELNET_DO,   TELNET_OPT_SGA,
-        TELNET_IAC, TELNET_WILL, TELNET_OPT_SGA,
-        TELNET_IAC, TELNET_DO,   TELNET_OPT_BINARY,
-        TELNET_IAC, TELNET_WILL, TELNET_OPT_BINARY,
-        TELNET_IAC, TELNET_DONT, TELNET_OPT_ECHO,
-        TELNET_IAC, TELNET_WONT, TELNET_OPT_ECHO
-    };
-    if (s->fd >= 0) {
-        (void)!write(s->fd, initial, sizeof(initial));
-    }
+    /* As a telnet client to the host we want:
+         DO   SGA / WILL SGA       - char-at-a-time, no GA in either dir
+         DO   BINARY / WILL BINARY - 8-bit clean
+       The pre-Q-method version also blasted DONT ECHO + WONT ECHO
+       unconditionally; those are redundant per RFC 1143 when both
+       sides start at Q_NO for ECHO (peer can't be echoing yet), so
+       we drop them. If the host later OFFERS WILL ECHO we'll refuse
+       it via policy_him_bridge, which excludes ECHO. */
+    send_do_bridge  (s, TELNET_OPT_SGA);
+    send_will_bridge(s, TELNET_OPT_SGA);
+    send_do_bridge  (s, TELNET_OPT_BINARY);
+    send_will_bridge(s, TELNET_OPT_BINARY);
 }
 
 static uint32 filter_iac(bridge_call_t *s,

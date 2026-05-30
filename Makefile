@@ -93,6 +93,12 @@ test: $(TEST_BIN)
 	done; \
 	exit $$status
 
+# Bridge-side tests need access to bridge headers + the corresponding
+# bridge .o(s). More specific than the generic tests/test_% rule below,
+# so make picks this one for the named targets.
+tests/test_user_telnet: tests/test_user_telnet.c $(BRIDGE_DIR)/user_telnet.o
+	$(CC) $(BRIDGE_CFLAGS) -o $@ $< $(BRIDGE_DIR)/user_telnet.o
+
 tests/test_%: tests/test_%.c $(LIB_OBJ) $(PLATFORM_OBJ)
 	$(CC) $(TEST_CFLAGS) -o $@ $< $(LIB_OBJ) $(PLATFORM_OBJ)
 
