@@ -66,6 +66,14 @@ BRIDGE_LIB_OBJ    = $(BRIDGE_LIB_SRC:.c=.o)
 BRIDGE_MAIN_SRC   = $(BRIDGE_DIR)/main.c
 BRIDGE_CFLAGS     = $(CFLAGS) -I$(BRIDGE_DIR)
 
+# Telos - the spec-rigid Telnet protocol engine. Self-contained;
+# depends only on include/types.h. Not yet wired into the bridge;
+# this is phase 1 of the migration laid out in CHANGELOG.
+TELOS_DIR         = telos
+TELOS_LIB_SRC     = $(TELOS_DIR)/telos.c
+TELOS_LIB_OBJ     = $(TELOS_LIB_SRC:.c=.o)
+TELOS_CFLAGS      = $(CFLAGS) -I$(TELOS_DIR)
+
 PADAWAN_BIN = padawan-lite
 
 .PHONY: all test clean lib
@@ -86,6 +94,9 @@ $(PADAWAN_BIN): $(BRIDGE_MAIN_SRC) $(BRIDGE_LIB_OBJ) $(LIB_NAME)
 $(BRIDGE_DIR)/%.o: $(BRIDGE_DIR)/%.c
 	$(CC) $(BRIDGE_CFLAGS) -c -o $@ $<
 
+$(TELOS_DIR)/%.o: $(TELOS_DIR)/%.c
+	$(CC) $(TELOS_CFLAGS) -c -o $@ $<
+
 test: $(TEST_BIN)
 	@status=0; \
 	for t in $(TEST_BIN); do \
@@ -103,6 +114,9 @@ tests/test_user_telnet: tests/test_user_telnet.c $(BRIDGE_DIR)/user_telnet.o
 tests/test_term_id: tests/test_term_id.c $(BRIDGE_DIR)/term_id.o
 	$(CC) $(BRIDGE_CFLAGS) -o $@ $< $(BRIDGE_DIR)/term_id.o
 
+tests/test_telos: tests/test_telos.c $(TELOS_LIB_OBJ)
+	$(CC) $(TELOS_CFLAGS) -o $@ $< $(TELOS_LIB_OBJ)
+
 tests/test_%: tests/test_%.c $(LIB_OBJ) $(PLATFORM_OBJ)
 	$(CC) $(TEST_CFLAGS) -o $@ $< $(LIB_OBJ) $(PLATFORM_OBJ)
 
@@ -110,5 +124,5 @@ tests/test_%: tests/test_%.c $(LIB_OBJ) $(PLATFORM_OBJ)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 clean:
-	rm -f $(LIB_OBJ) $(PLATFORM_OBJ) $(BRIDGE_LIB_OBJ) \
+	rm -f $(LIB_OBJ) $(PLATFORM_OBJ) $(BRIDGE_LIB_OBJ) $(TELOS_LIB_OBJ) \
 	      $(TEST_BIN) $(PADAWAN_BIN) $(LIB_NAME)

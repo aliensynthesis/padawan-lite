@@ -4,6 +4,62 @@ All notable changes to Padawan-Lite are recorded here. The format
 follows [Keep a Changelog](https://keepachangelog.com/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.5.2] — 2026-05-31
+
+### Added
+
+- **`telos/` — Telnet protocol engine module.** A standalone,
+  spec-rigid C89 library implementing the protocol surface that
+  has so far been handled ad-hoc inside `bridge/user_telnet.c`
+  and `bridge/x25_telnet_bridge.c`. Self-contained: depends only
+  on `include/types.h`, no other project headers. RFCs covered:
+
+  | RFC | Subject | Coverage |
+  | --- | --- | --- |
+  | 854 | Telnet protocol / NVT | IAC parser, IAC IAC, CR LF / CR NUL normalisation, all single-byte commands (NOP, DM, BRK, IP, AO, AYT, EC, EL, GA) parsed and surfaced as events |
+  | 855 | Option negotiation framework | WILL/WONT/DO/DONT, subneg framing with IAC IAC body escaping |
+  | 856 | BINARY | BINARY YES in either direction suppresses NVT line-ending normalisation in that direction |
+  | 857 | ECHO | Q-state tracked, no special framing required |
+  | 858 | SGA | Q-state tracked. GA emission on `SGA = NO` not implemented (most peers reach `SGA = YES` immediately); deferred. |
+  | 1073 | NAWS | Subneg events deliver the 4-byte width/height body; callers compose |
+  | 1091 | TERMINAL-TYPE | Subneg events deliver SEND/IS framing; callers compose |
+  | 1143 | Q-method | Full state machine over all 256 options × 2 directions; loop-breaker WANTYES→YES transition implemented |
+
+  API surface (`telos/telos.h`): caller-allocated `telos_session_t`
+  struct (no `malloc`), three callbacks (`policy_cb`, `event_cb`,
+  `write_cb`), and entry points for receive, send-data, offer/
+  withdraw WILL/DO, subneg send, command send, Q-state query.
+  Tolerant by default (silently absorbs redundant peer
+  acknowledgements per Postel's law); `TELOS_FLAG_STRICT_PEER`
+  surfaces violations via `TELOS_EV_PROTO_ERROR` events for test
+  scenarios. NULL callbacks are tolerated everywhere.
+
+  **Scope note:** this is phase 1 of a planned migration. Telos
+  is not yet wired into the bridge; both `bridge/user_telnet.c`
+  and the IAC half of `bridge/x25_telnet_bridge.c` still live and
+  still handle padawan-lite's runtime Telnet conversations. Phase
+  2 will migrate `user_telnet.c` to call into Telos; phase 3 will
+  do the same for the host-side bridge. Each phase will be a
+  separate commit with the relevant regression-test contracts.
+
+### Verified
+
+- New `tests/test_telos` (39 scenarios) covers: init defaults,
+  plain data pass-through, IAC IAC, NVT CR LF / CR NUL handling
+  (including BINARY suppression), all four negotiation paths
+  with policy yes/no, OPTION_ENABLED / OPTION_DISABLED events,
+  Q-method loop-breaker (WANTYES → YES is silent), idempotent
+  `offer_will`, WONT-on-YES handshake, subneg recv with IAC IAC
+  body decoding, subneg send with body encoding, STRICT_PEER
+  proto-error emission, tolerant-mode silent absorption,
+  send-side IAC doubling, send-side CR → CR LF encoding (NVT
+  mode) and its BINARY suppression, partial-sequence carry
+  across two recv calls, NULL callback safety. All 7
+  pre-existing test binaries still pass (870 assertions total
+  across 8 binaries).
+
+[1.5.2]: https://example.invalid/padawan-lite/releases/tag/v1.5.2
+
 ## [1.5.1] — 2026-05-31
 
 ### Added
