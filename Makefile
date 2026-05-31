@@ -60,7 +60,8 @@ LIB_NAME = libpadawancore.a
 BRIDGE_DIR        = bridge
 BRIDGE_LIB_SRC    = $(BRIDGE_DIR)/x25_telnet_bridge.c \
                     $(BRIDGE_DIR)/user_telnet.c \
-                    $(BRIDGE_DIR)/pcp.c
+                    $(BRIDGE_DIR)/pcp.c \
+                    $(BRIDGE_DIR)/term_id.c
 BRIDGE_LIB_OBJ    = $(BRIDGE_LIB_SRC:.c=.o)
 BRIDGE_MAIN_SRC   = $(BRIDGE_DIR)/main.c
 BRIDGE_CFLAGS     = $(CFLAGS) -I$(BRIDGE_DIR)
@@ -98,6 +99,9 @@ test: $(TEST_BIN)
 # so make picks this one for the named targets.
 tests/test_user_telnet: tests/test_user_telnet.c $(BRIDGE_DIR)/user_telnet.o
 	$(CC) $(BRIDGE_CFLAGS) -o $@ $< $(BRIDGE_DIR)/user_telnet.o
+
+tests/test_term_id: tests/test_term_id.c $(BRIDGE_DIR)/term_id.o
+	$(CC) $(BRIDGE_CFLAGS) -o $@ $< $(BRIDGE_DIR)/term_id.o
 
 tests/test_%: tests/test_%.c $(LIB_OBJ) $(PLATFORM_OBJ)
 	$(CC) $(TEST_CFLAGS) -o $@ $< $(LIB_OBJ) $(PLATFORM_OBJ)

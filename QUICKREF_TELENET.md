@@ -1,6 +1,6 @@
 # Padawan-Lite Telenet Personality — Quick Reference
 
-For `--emulate telenet` as of Padawan-Lite v1.4.1.
+For `--emulate telenet` as of Padawan-Lite v1.5.0.
 
 Companion to [`QUICKREF.md`](QUICKREF.md). That doc covers Padawan-Lite
 in general; this one is the reference card for what the Telenet
@@ -23,7 +23,7 @@ uses the `default` personality (X.28 standard). Everything in
 | --- | --- |
 | First user `<CR>` | Silent — autobaud heritage; session holds in `DTE_WAITING`. |
 | Second user `<CR>` | Emits the `TELENET` banner, the address line, and the `TERMINAL=` prompt. |
-| User types terminal type + `<CR>` (or just `<CR>`) | Stored on session (informational only — no X.3 effect); emit `@` prompt. |
+| User types terminal type + `<CR>` (or just `<CR>`) | Stored on session and used to identify the user to hosts (TTYPE subnegotiation + inline DA1 / VT52-Identify replies). A bare `<CR>` falls through to the `--ttype-claim` operator default (or `vt100`). See [`QUICKREF.md`](QUICKREF.md) for the precedence chain. |
 | Session ready | At `@` prompt in `PAD_WAITING`. |
 
 Banner format (two lines + prompt):

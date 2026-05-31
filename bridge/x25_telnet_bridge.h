@@ -70,6 +70,18 @@ int x25_bridge_load_map(const char *filename);
    TIOCGWINSZ and again from a SIGWINCH handler. */
 void x25_bridge_set_window_size(uint16 width, uint16 height);
 
+/* Set the default terminal type the bridge claims to hosts (via
+   TELNET TTYPE subnegotiation and inline DEC DA1 / VT52 Identify
+   auto-responses) when the user has not supplied a non-empty
+   response at the Telenet "TERMINAL=" prompt. Accepts the names
+   defined in bridge/term_id.c (vt52, vt100, vt102, vt220, xterm,
+   dumb), case-insensitive. Returns 0 on success, -1 if the name
+   is not in the table. Per-session user input always wins over
+   this default; see effective_ttype_name(). Calling with NULL or
+   an empty string is treated as "unset" (revert to built-in
+   "vt100" fallback). */
+int x25_bridge_set_ttype_claim(const char *name);
+
 /* --- multi-session helpers ------------------------------------------- */
 
 /* Return the socket fd of the active call bound to the given session,

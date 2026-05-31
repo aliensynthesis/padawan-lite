@@ -58,6 +58,7 @@
 #include "x25.h"
 #include "pad.h"
 #include "pcp.h"
+#include "term_id.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -130,6 +131,11 @@ typedef struct {
        break re-offer/re-reply loops with stateless peers. */
     bridge_q_t     us[BRIDGE_OPT_TABLE];
     bridge_q_t     him[BRIDGE_OPT_TABLE];
+
+    /* Inline DA query interceptor state. Watches host->user bytes
+       for ESC [ c / ESC [ <param> c (DA1) and ESC Z (VT52 Identify)
+       and auto-responds on behalf of the user's terminal. */
+    term_id_filter_t term_id;
 } bridge_call_t;
 
 static bridge_call_t  g_calls[BRIDGE_MAX_CALLS];
@@ -143,6 +149,12 @@ static pad_session_t *g_default_session = NULL;
    x25_bridge_set_window_size. */
 static uint16 g_default_naws_width  = 80;
 static uint16 g_default_naws_height = 24;
+
+/* Operator-set default terminal name (--ttype-claim). Empty means
+   "no operator default; fall through to the term_id_default()
+   entry." See effective_term_id() and x25_bridge_set_ttype_claim. */
+#define BRIDGE_TTYPE_MAX 31
+static char g_ttype_claim_default[BRIDGE_TTYPE_MAX + 1] = "";
 
 /* --- address map (process-global) ------------------------------------- */
 
@@ -468,29 +480,66 @@ static void send_negotiation_response(bridge_call_t *s,
     else if (verb == TELNET_DONT) recv_dont_bridge (s, option);
 }
 
+/* Resolve the effective terminal identity for a bridge call. The
+   precedence chain (highest first):
+     1. Per-session: a non-empty s->session->terminal_type captured at
+        the personality's TERMINAL= prompt (Telenet).
+     2. Operator default: --ttype-claim NAME set via
+        x25_bridge_set_ttype_claim().
+     3. Built-in: term_id_default() (VT100).
+   Always returns a non-NULL entry. If the user's TERMINAL= response
+   names a terminal the table doesn't know, falls through as if it
+   were absent -- safer than claiming bytes we can't produce. */
+static const term_id_entry_t *effective_term_id(const bridge_call_t *s)
+{
+    const term_id_entry_t *e;
+    if (s != NULL && s->session != NULL &&
+        s->session->terminal_type[0] != '\0') {
+        e = term_id_lookup(s->session->terminal_type);
+        if (e != NULL) return e;
+    }
+    if (g_ttype_claim_default[0] != '\0') {
+        e = term_id_lookup(g_ttype_claim_default);
+        if (e != NULL) return e;
+    }
+    return term_id_default();
+}
+
+int x25_bridge_set_ttype_claim(const char *name)
+{
+    size_t n;
+    if (name == NULL || *name == '\0') {
+        g_ttype_claim_default[0] = '\0';
+        return 0;
+    }
+    if (term_id_lookup(name) == NULL) return -1;
+    n = strlen(name);
+    if (n > BRIDGE_TTYPE_MAX) n = BRIDGE_TTYPE_MAX;
+    memcpy(g_ttype_claim_default, name, n);
+    g_ttype_claim_default[n] = '\0';
+    return 0;
+}
+
 static void send_terminal_type(bridge_call_t *s)
 {
     static const uint8 prefix[] = {
         TELNET_IAC, TELNET_SB, TELNET_OPT_TTYPE, TELNET_TTYPE_IS
     };
     static const uint8 suffix[] = { TELNET_IAC, TELNET_SE };
-    /* RFC 1091: the server may request TTYPE multiple times, expecting
-       alternative names. When the client repeats the same name on
-       consecutive responses, the server knows the list is exhausted.
-       v1.2 rotates through PADAWAN -> UNKNOWN -> UNKNOWN (settled). */
-    static const char *const names[] = { "PADAWAN", "UNKNOWN" };
-    static const uint8 name_count = (uint8)(sizeof(names) / sizeof(names[0]));
+    /* RFC 1091: the server may request TTYPE multiple times. We use
+       the same effective identity each time so the host sees a stable
+       name (and reaches the "list exhausted" condition immediately on
+       the second request). Identity comes from the precedence chain;
+       see effective_term_id(). */
+    const term_id_entry_t *id;
     const char *t;
     size_t      tlen;
 
     if (s->fd < 0) return;
-    if (s->ttype_index >= name_count) {
-        t = names[name_count - 1]; /* repeat the last to signal end */
-    } else {
-        t = names[s->ttype_index];
-        s->ttype_index++;
-    }
+    id = effective_term_id(s);
+    t = id->name;
     tlen = strlen(t);
+    s->ttype_index++;   /* tracked for telemetry; no longer drives output */
     (void)!write(s->fd, prefix, sizeof(prefix));
     (void)!write(s->fd, t,      tlen);
     (void)!write(s->fd, suffix, sizeof(suffix));
@@ -843,6 +892,26 @@ static void poll_one(bridge_call_t *s, short revents)
         ssize_t n = read(s->fd, raw, sizeof(raw));
         if (n > 0) {
             n_filtered = filter_iac(s, raw, (uint32)n, filtered);
+            if (n_filtered > 0) {
+                /* Intercept DEC ANSI DA1 / VT52 Identify queries and
+                   answer on behalf of the user's terminal. Most users
+                   on bridged transports (tcpser, raw netcat, scripted
+                   sessions) cannot reply to these inline ESC queries,
+                   and VMS/Unix/etc. fall back to "unknown terminal"
+                   when no answer comes back within their 4-second
+                   timeout. We swallow the query from the host-to-PAD
+                   data stream and write the appropriate DA response
+                   back to the host. See bridge/term_id.h. */
+                uint8  resp[64];
+                uint32 resp_len = 0;
+                n_filtered = term_id_filter_process(
+                    &s->term_id, effective_term_id(s),
+                    filtered, n_filtered, filtered,
+                    resp, sizeof(resp), &resp_len);
+                if (resp_len > 0 && s->fd >= 0) {
+                    (void)!write(s->fd, resp, resp_len);
+                }
+            }
             if (n_filtered > 0) {
                 /* User-data flow from the Telnet peer is always qbit=0;
                    true X.29 needs a real X.25 transport. */

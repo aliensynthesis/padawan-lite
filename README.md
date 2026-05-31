@@ -60,6 +60,19 @@ packet-switched era.
   Telenet reference card (handshake, command aliases, signal text,
   X.3 overlay, sourcing pyramid, and known deviations all in one
   place).
+- **Terminal identification on behalf of the user.** Hosts ask
+  terminals "what kind of terminal are you?" via Telnet TTYPE
+  subnegotiation and inline DEC ANSI DA1 / VT52-Identify queries;
+  many bridged transports (tcpser, raw `nc`, scripted sessions)
+  have no real terminal at the user end to answer. Padawan-Lite
+  intercepts these queries on the host side and answers on the
+  user's behalf with a configurable identity:
+  `--ttype-claim NAME` sets the operator default; if the user
+  responds to the Telenet `TERMINAL=` prompt with a non-empty
+  type name, that wins per-session. Names: `vt52`, `vt100`,
+  `vt102`, `vt220`, `xterm`, `dumb`; default `vt100`. The same
+  identity drives both the Telnet TTYPE subneg response and the
+  inline DA replies, so the host gets a single coherent answer.
 - **Pluggable transport.** Padawan-Lite talks to the network through
   an abstract X.25 service interface ([`include/x25.h`](include/x25.h));
   the Telnet/TCP bridge is one implementation. Write another if you
@@ -127,6 +140,7 @@ followed by `30001<CR>` (session-level NUI).
 | `--trace-line-mode`           | Consolidate CLIENT entries by CR (implies `--trace`)              |
 | `--pcp-port PORT`             | PAD Control Protocol listener on `127.0.0.1:PORT` (`0` = off)     |
 | `--emulate NAME`              | PAD personality: `default` (X.28), `telenet`                      |
+| `--ttype-claim NAME`          | Default terminal-type claim to hosts (`vt52`/`vt100`/`vt102`/`vt220`/`xterm`/`dumb`; default `vt100`) |
 | `-h`, `--help`                | Show usage                                                        |
 
 See [`QUICKREF.md`](QUICKREF.md) for the full reference card —

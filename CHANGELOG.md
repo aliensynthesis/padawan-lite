@@ -4,6 +4,75 @@ All notable changes to Padawan-Lite are recorded here. The format
 follows [Keep a Changelog](https://keepachangelog.com/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.5.0] — 2026-05-30
+
+### Added
+
+- **Terminal identification on behalf of the user-side terminal.**
+  Hosts ask "what kind of terminal are you?" via two channels:
+  the Telnet TERMINAL-TYPE subnegotiation (`SB TT IS …`) and the
+  inline DEC ANSI Device Attributes 1 / VT52-Identify queries
+  (`ESC [ c`, `ESC [ <param> c`, `ESC Z`) that hosts send mixed
+  into the user-data stream. On bridged transports (tcpser, raw
+  `nc`, scripted clients) there is no real terminal at the user
+  end to answer the inline queries, so VMS LOGINOUT (and similar
+  login shells) print `%SET-W-NOTSET / -SET-I-UNKTERM` after a
+  4-second timeout and proceed in dumb-terminal mode. This
+  release adds a host-side interceptor in
+  `bridge/x25_telnet_bridge.c` that swallows the queries and
+  auto-responds with a configurable identity.
+
+  The identity is resolved by a precedence chain (highest first):
+
+  1. **Per-session**: a non-empty user response at the active
+     personality's `TERMINAL=` prompt (Telenet). Captured into
+     `pad_session_t.terminal_type` (existing field; never
+     consumed before this release).
+  2. **Operator default**: `--ttype-claim NAME` (new CLI flag).
+  3. **Built-in**: `VT100`.
+
+  Known names: `VT52`, `VT100`, `VT102`, `VT220`, `XTERM`, `DUMB`
+  (case-insensitive). `DUMB` swallows the query but emits no
+  reply, so the host falls back to its own unknown-terminal
+  handling. The same identity drives the Telnet TTYPE subneg
+  reply (replacing the v1.2-era hardcoded
+  `PADAWAN` → `UNKNOWN` rotation) and the inline DA1 / VT52
+  replies, so a host that asks both ways gets the same answer.
+
+  Implementation lives in a new `bridge/term_id.{h,c}` module
+  with a lookup table and a small state-machine filter
+  (`term_id_filter_process`) that handles queries split across
+  read() boundaries and passes all non-query escape sequences
+  (cursor moves, SGR, etc.) through unchanged.
+
+### Changed
+
+- `bridge/x25_telnet_bridge.c::send_terminal_type` no longer
+  rotates `PADAWAN → UNKNOWN`. It now emits the effective
+  terminal identity from the precedence chain above on every
+  TTYPE-SEND it receives. RFC 1091's "repeat the last name to
+  signal end-of-list" behaviour is preserved because the second
+  request yields the same name as the first.
+
+### Verified
+
+- New `tests/test_term_id` (34 assertions): lookup table (case
+  variants, unknown name, NULL, DUMB-entry NULL responses,
+  default resolution); inline filter (pass-through, simple DA1,
+  parameterised DA1, VT52 Identify, split-across-calls,
+  non-query escapes, SGR, mixed text + query, DUMB no-response,
+  CSI overflow via `TIF_FLUSH_THROUGH`, two queries one call,
+  VT220 reply shape, NULL-id fallback to VT100). All 6
+  pre-existing test binaries still pass (793 → 827 total
+  assertions across 7 binaries).
+
+- See `deviations.txt` [2026-05-30] for the spec / scope note.
+  This is a bridge-layer deviation from strict byte-transparency
+  in the host→user direction; the PAD core remains byte-
+  transparent.
+
+[1.5.0]: https://example.invalid/padawan-lite/releases/tag/v1.5.0
+
 ## [1.4.2] — 2026-05-30
 
 ### Fixed

@@ -919,7 +919,14 @@ static void usage(const char *argv0)
         "      --pcp-port <port>    PAD Control Protocol listener"
                                  " (localhost; 0 = off)\n"
         "      --emulate <name>     PAD personality"
-                                 " (default, telenet)\n"
+                                 " (default, telenet)\n");
+    fprintf(stderr,
+        "      --ttype-claim <name> default terminal-type claim"
+                                 " (vt52, vt100, vt102, vt220,\n"
+        "                           xterm, dumb; default: vt100)."
+                                 " A user response at the\n"
+        "                           Telenet TERMINAL= prompt"
+                                 " overrides this per-session.\n"
         "  -h, --help               this help\n"
         "  Default: single session over stdin/stdout.\n");
 }
@@ -997,6 +1004,15 @@ int main(int argc, char **argv)
                 fprintf(stderr,
                         "unknown personality '%s' "
                         "(try default, telenet)\n", argv[ai]);
+                return 2;
+            }
+        } else if (strcmp(argv[ai], "--ttype-claim") == 0) {
+            if (++ai >= argc) { usage(argv[0]); return 2; }
+            if (x25_bridge_set_ttype_claim(argv[ai]) != 0) {
+                fprintf(stderr,
+                        "unknown ttype-claim '%s' "
+                        "(try vt52, vt100, vt102, vt220, xterm, dumb)\n",
+                        argv[ai]);
                 return 2;
             }
         } else if (strcmp(argv[ai], "--pcp-port") == 0) {

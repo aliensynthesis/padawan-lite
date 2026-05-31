@@ -960,3 +960,52 @@ Each item names the spec clauses that govern it.
   bitmask in the personality-text + prefix path; if the cause
   bit is set, emit_signal_text (bare) is called instead of
   emit_signal_text_with_addr (prefixed).
+
+
+[2026-05-30] bridge/x25_telnet_bridge.c, bridge/term_id.{h,c} - inline
+DEC ANSI DA1 / VT52-Identify auto-responder.
+
+  Scope: bridge transport only. The PAD core remains byte-transparent
+  in the host->user direction.
+
+  X.28 and the PSPDN era predate inline ANSI terminal-identification
+  queries. The bridge nevertheless now intercepts two ESC-sequence
+  queries that hosts send "out of band" inside the user-data stream:
+
+      ESC [ c   and ESC [ <param> c    (DEC DA1, ECMA-48 §5.4)
+      ESC Z                            (DEC VT52 Identify)
+
+  When detected, the bytes are swallowed (not forwarded to the user
+  terminal) and the appropriate DA response is written back to the
+  host. The terminal identity is resolved from a precedence chain:
+
+      1. Per-session: pad_session_t.terminal_type captured at the
+         active personality's TERMINAL= prompt (Telenet).
+      2. Operator default: --ttype-claim NAME (CLI flag).
+      3. Built-in: VT100.
+
+  Available names: VT52, VT100, VT102, VT220, XTERM, DUMB
+  (case-insensitive). DUMB causes the query to be swallowed silently
+  with no reply, letting the host time out and fall back to its
+  unknown-terminal handling.
+
+  Rationale: bridged transports (tcpser, raw nc, scripted clients)
+  usually have no real terminal emulator at the user end to answer
+  these queries. With no answer, VMS LOGINOUT (and other login
+  shells) issues %SET-W-NOTSET / -SET-I-UNKTERM after a 4-second
+  timeout and proceeds in dumb-terminal mode. The inline responder
+  gives those bridged paths the terminal handling they would have
+  had if a real terminal sat at the user end.
+
+  Deviation from strict byte-transparency: the bridge no longer
+  forwards every byte the host sent to the user; ESC [ c, ESC [
+  <param> c, and ESC Z are silently consumed. This is acceptable
+  because (a) those bytes are queries directed at the terminal,
+  not user-visible content, and (b) the user can opt out via
+  --ttype-claim dumb if true transparency matters.
+
+  The same identity also drives the Telnet TERMINAL-TYPE
+  subnegotiation reply (replacing the v1.2-era hardcoded
+  "PADAWAN" -> "UNKNOWN" rotation), so a host that asks via both
+  the in-band Telnet option and the inline ESC query gets the same
+  answer.

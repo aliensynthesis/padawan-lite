@@ -7,7 +7,7 @@ For ITU-T X.28 Packet Assembler/Disassembler v1.2.
 ```
 padawan-lite [-c FILE] [-l PORT] [-a FILE] [-t] [-b BPS]
              [--trace] [--trace-prefix P] [--trace-line-mode]
-             [--pcp-port PORT] [--emulate NAME] [-h]
+             [--pcp-port PORT] [--emulate NAME] [--ttype-claim NAME] [-h]
 ```
 
 | Flag                       | Effect                                                   |
@@ -22,6 +22,7 @@ padawan-lite [-c FILE] [-l PORT] [-a FILE] [-t] [-b BPS]
 | `--trace-line-mode`        | CLIENT entries flush on CR; SERVICE pairs with each line |
 | `--pcp-port PORT`          | PAD Control Protocol listener on `127.0.0.1:PORT`        |
 | `--emulate NAME`           | PAD personality: `default` (X.28), `telenet`             |
+| `--ttype-claim NAME`       | Default terminal-type claim to hosts (`vt52`/`vt100`/`vt102`/`vt220`/`xterm`/`dumb`; default `vt100`). A non-empty Telenet `TERMINAL=` response overrides per-session. Drives both Telnet TTYPE subnegotiation and the inline DEC DA1 / VT52-Identify auto-responder. |
 
 Under `--emulate telenet`, the PAD also recognises these synonyms:
 `CONNECT`/`C` for CALL, `DISCONNECT`/`D` for CLR, `CONT`/`CONTINUE`
