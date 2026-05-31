@@ -164,9 +164,18 @@ typedef struct {
 
    aliases is an optional NULL-terminated array of personality-supplied
    command synonyms (see x28_command_alias_t); pass NULL when no
-   personality is active. */
+   personality is active.
+
+   pseudo_ids / pseudo_count is an optional list of "extended" X.3
+   parameter IDs the personality treats as legal-but-no-op (e.g.
+   Telenet pseudo-params 0/57/63 observed in QuantumLink). When non-NULL
+   and the array is non-empty, IDs in this list bypass the standard
+   [X3_PAR_MIN..X3_PAR_MAX] range check in SET/SET?/PAR?/RPAR?/RSET
+   argument parsing. Pass NULL/0 for strict X.28. */
 int x28_parse_command(const char *input, uint32 len,
                       const x28_command_alias_t *aliases,
+                      const uint8 *pseudo_ids,
+                      uint8        pseudo_count,
                       x28_command_t *out);
 
 /* PAD service signal formatters (X.28 clause 3.5).

@@ -180,6 +180,24 @@ typedef struct personality {
        command in WAITING_FOR_CMD auto-returns to DATA_TRANSFER. */
     uint8 keep_command_mode_after_recall;
 
+    /* Optional list of "extended" X.3 parameter IDs the personality
+       accepts as legal-but-no-op in SET / SET? / PAR? / RPAR? /
+       RSET commands. IDs outside [X3_PAR_MIN..X3_PAR_MAX] would
+       normally trigger ERR; IDs in this list bypass that check.
+       The PAD does not store the values (SETs are silent no-ops)
+       and PAR?-style readback returns 0 for them. Use this to
+       absorb network-specific pseudo-parameters that real PSPDN
+       clients send (e.g. QuantumLink's "SET? 0:33,57:1,63:0"
+       observed in a 1980s Telenet client capture). NULL means the
+       personality accepts no extended IDs (strict X.28).
+
+       extended_param_count is the number of entries; the array
+       itself need not be sorted. The dispatcher membership test is
+       a linear scan, which is fine for the handful of values these
+       lists typically carry. */
+    const uint8 *extended_param_ids;
+    uint8        extended_param_count;
+
     /* Optional terminal-type prompt emitted at handshake completion
        after the banner (and the address line, if any). When NULL,
        no prompt is emitted and complete_handshake proceeds straight

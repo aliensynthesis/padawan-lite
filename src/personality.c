@@ -78,6 +78,8 @@ static const personality_t PERSONALITY_DEFAULT = {
     0,              /* prefix_called_address_on_call_signals: off */
     0,              /* clr_text_skip_address_prefix: n/a (prefix off) */
     0,              /* keep_command_mode_after_recall: X.28 one-shot */
+    NULL,           /* extended_param_ids: strict X.28, no pseudos */
+    0,              /* extended_param_count: 0 */
     NULL            /* terminal_type_prompt: none */
 };
 
@@ -232,6 +234,25 @@ static const uint8 TELENET_PROFILE_OVERLAY[X3_PAR_MAX + 1] = {
 static const uint8 TELENET_HALF_PAIRS[] = { 2, 0 }; /* SET 2:0  echo off */
 static const uint8 TELENET_FULL_PAIRS[] = { 2, 1 }; /* SET 2:1  echo on  */
 
+/* Extended (pseudo) X.3 parameter IDs the Telenet personality accepts
+   as silent no-ops in SET/SET?/PAR?/RPAR? commands. Sourced from a
+   QuantumLink (Q-Link) terminal-client capture observed 2026-05-31:
+   the client emits "SET? 10:0,15:0,0:33,57:1,63:0" right after the
+   Telenet "@" prompt arrives.
+
+   - IDs 10 and 15 are standard X.3 parameters and would be accepted
+     anyway.
+   - IDs 0, 57, and 63 are out of the standard X.3 range
+     (X3_PAR_MIN .. X3_PAR_MAX). Their semantics aren't documented in
+     any Telenet manual we have on hand, but the QuantumLink client
+     was carefully built to talk to Telenet PADs, so refusing them
+     would look like a network-side fault to the client.
+   - Acceptance is no-op: the values are not stored, and PAR? /
+     SET? readback returns 0. Promotable to real semantics if
+     authoritative documentation surfaces. See deviations.txt
+     entry [2026-05-31] for details. */
+static const uint8 TELENET_PSEUDO_PARAMS[] = { 0, 57, 63 };
+
 static const x28_command_alias_t TELENET_ALIASES[] = {
     { "DISCONNECT", X28_CMD_CLR,       0, NULL,               0 },
     { "CONTINUE",   X28_CMD_CONTINUE,  0, NULL,               0 },
@@ -285,6 +306,12 @@ static const personality_t PERSONALITY_TELENET = {
                                           multi-shot recall per Telenet
                                           user doc; CONT/CONTINUE returns
                                           the user to data mode */
+    TELENET_PSEUDO_PARAMS,             /* extended_param_ids: 0, 57, 63
+                                          observed in QuantumLink capture
+                                          (see TELENET_PSEUDO_PARAMS) */
+    (uint8)(sizeof(TELENET_PSEUDO_PARAMS) /
+             sizeof(TELENET_PSEUDO_PARAMS[0])),
+                                       /* extended_param_count */
     "TERMINAL="                        /* terminal_type_prompt per Telenet
                                           user doc; captured value stored
                                           in pad_session_t.terminal_type

@@ -222,6 +222,31 @@ static void test_default_has_no_command_aliases(void)
     ASSERT_TRUE(personality_by_name("default")->command_aliases == NULL);
 }
 
+static void test_telenet_pseudo_param_table_publishes_qlink_set(void)
+{
+    /* Telenet exposes the pseudo-parameter IDs 0, 57, and 63 observed
+       in a 2026-05-31 QuantumLink terminal-client capture. The
+       default personality does not (strict X.28). */
+    const personality_t *p = personality_by_name("telenet");
+    int saw_0 = 0, saw_57 = 0, saw_63 = 0;
+    uint8 i;
+    ASSERT_TRUE(p != NULL);
+    ASSERT_TRUE(p->extended_param_ids != NULL);
+    ASSERT_TRUE(p->extended_param_count >= 3);
+    for (i = 0; i < p->extended_param_count; i++) {
+        if (p->extended_param_ids[i] == 0)  saw_0  = 1;
+        if (p->extended_param_ids[i] == 57) saw_57 = 1;
+        if (p->extended_param_ids[i] == 63) saw_63 = 1;
+    }
+    ASSERT_TRUE(saw_0);
+    ASSERT_TRUE(saw_57);
+    ASSERT_TRUE(saw_63);
+
+    ASSERT_TRUE(personality_by_name("default")->extended_param_ids == NULL);
+    ASSERT_EQ_INT(
+        personality_by_name("default")->extended_param_count, 0);
+}
+
 static void test_telenet_c_alias_with_space_dispatches_call(void)
 {
     /* Telenet aliases require whitespace between the keyword and the
@@ -844,6 +869,7 @@ int main(void)
     test_banner_set_by_personality();
     test_telenet_command_aliases_present();
     test_default_has_no_command_aliases();
+    test_telenet_pseudo_param_table_publishes_qlink_set();
     test_telenet_c_alias_with_space_dispatches_call();
     test_telenet_C_alias_with_space_dispatches_call();
     test_telenet_c_no_space_does_not_match_alias();

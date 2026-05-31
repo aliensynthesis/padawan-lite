@@ -496,6 +496,23 @@ static void emit_ldel_signal(pad_session_t *p, uint32 chars_deleted)
    invalid pairs by setting the .invalid flag on their entry in the response
    PAR signal. Returns 1 if any pair was invalid, 0 otherwise. The output
    array `out` is populated with one entry per input pair. */
+/* True iff `ref` appears in the active personality's pseudo-param list.
+   Pseudo refs are accepted by the parser but treated as silent no-ops
+   by the SET path and as "always 0" by the PAR / SET? read-back path,
+   so a personality can absorb network-specific extensions (Telenet's
+   0/57/63 observed in a QuantumLink capture) without rejecting the
+   command. */
+static int is_personality_pseudo(const pad_session_t *p, uint8 ref)
+{
+    uint8 i;
+    if (p->personality == NULL) return 0;
+    if (p->personality->extended_param_ids == NULL) return 0;
+    for (i = 0; i < p->personality->extended_param_count; i++) {
+        if (p->personality->extended_param_ids[i] == ref) return 1;
+    }
+    return 0;
+}
+
 static int classify_set_batch(pad_session_t *p,
                               const x28_param_pair_t *in, uint8 count,
                               x28_param_pair_t *out)
@@ -506,6 +523,11 @@ static int classify_set_batch(pad_session_t *p,
         out[i].ref = in[i].ref;
         out[i].value = in[i].value;
         out[i].invalid = 0;
+        if (is_personality_pseudo(p, in[i].ref)) {
+            /* Pseudo: silent no-op. Value is not stored anywhere; the
+               eventual read-back (if any) returns 0. */
+            continue;
+        }
         if (x3_validate(in[i].ref, in[i].value) != X3_OK) {
             out[i].invalid = 1;
             any_invalid = 1;
@@ -538,7 +560,13 @@ static void dispatch_command(pad_session_t *p, const x28_command_t *cmd)
                  i < cmd->param_count && count < X28_MAX_PARAMS;
                  i++) {
                 out[count].ref = cmd->params[i].ref;
-                out[count].value = p->params.values[cmd->params[i].ref];
+                if (is_personality_pseudo(p, cmd->params[i].ref)) {
+                    /* Pseudo: not stored in p->params.values; always 0. */
+                    out[count].value = 0;
+                } else {
+                    out[count].value =
+                        p->params.values[cmd->params[i].ref];
+                }
                 out[count].invalid = 0;
                 count++;
             }
@@ -567,8 +595,12 @@ static void dispatch_command(pad_session_t *p, const x28_command_t *cmd)
         uint8 i;
         for (i = 0; i < cmd->param_count; i++) {
             out[i].ref = cmd->params[i].ref;
-            if (x3_validate(cmd->params[i].ref,
-                            cmd->params[i].value) == X3_OK) {
+            if (is_personality_pseudo(p, cmd->params[i].ref)) {
+                /* Pseudo: silent no-op; readback reports value 0. */
+                out[i].value   = 0;
+                out[i].invalid = 0;
+            } else if (x3_validate(cmd->params[i].ref,
+                                   cmd->params[i].value) == X3_OK) {
                 x3_set(&p->params, cmd->params[i].ref, cmd->params[i].value);
                 out[i].value = p->params.values[cmd->params[i].ref];
                 out[i].invalid = 0;
@@ -892,11 +924,19 @@ static void feed_command_byte(pad_session_t *p, uint8 c)
             emit_ack(p);
         } else if (p->edit_len > 0) {
             x28_command_t cmd;
-            const x28_command_alias_t *aliases =
-                (p->personality != NULL) ?
-                    p->personality->command_aliases : NULL;
-            int rc = x28_parse_command((const char *)p->edit_buf,
-                                       p->edit_len, aliases, &cmd);
+            const x28_command_alias_t *aliases;
+            const uint8 *pseudo_ids;
+            uint8        pseudo_count;
+            int          rc;
+            aliases = (p->personality != NULL) ?
+                          p->personality->command_aliases : NULL;
+            pseudo_ids   = (p->personality != NULL) ?
+                               p->personality->extended_param_ids : NULL;
+            pseudo_count = (p->personality != NULL) ?
+                               p->personality->extended_param_count : 0;
+            rc = x28_parse_command((const char *)p->edit_buf,
+                                   p->edit_len, aliases,
+                                   pseudo_ids, pseudo_count, &cmd);
             if (rc == X28_PARSE_OK) {
                 dispatch_command(p, &cmd);
             } else {

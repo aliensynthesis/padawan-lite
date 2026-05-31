@@ -161,6 +161,26 @@ NETLINK's parameter stream) is **not modelled**. Padawan-Lite's
 X.3 only handles the basic 1–22 + extended 23–30 namespace
 defined by ITU-T.
 
+### Pseudo-parameter IDs accepted (silent no-op)
+
+Beyond the standard X.3 range, the Telenet personality accepts
+the following IDs as **legal but no-op** so a real Telenet-era
+client doesn't see spurious `?` errors. SET / SET? against any
+of these is silently accepted; the PAR? / SET? readback reports
+the ID with value `0`.
+
+| ID | Source | Semantics |
+| --- | --- | --- |
+| 0 | QuantumLink (Q-Link) terminal client, 2026-05-31 capture | Unknown — no canonical Telenet manual located. Sent as part of `SET? 10:0,15:0,0:33,57:1,63:0` right after the `@` prompt. |
+| 57 | same | Unknown — same caveat. |
+| 63 | same | Unknown — same caveat. |
+
+If you have authoritative documentation for any of these, the
+acceptance path is promotable to real semantics (file an issue
+and we'll wire them into the SET / PAR dispatchers). The default
+(strict X.28) personality still rejects them with `?`. See
+`deviations.txt` [2026-05-31] for the architecture note.
+
 ## Telenet personality flags (summary)
 
 | `personality_t` field | Value for Telenet |

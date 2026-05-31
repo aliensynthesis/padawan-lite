@@ -1009,3 +1009,54 @@ DEC ANSI DA1 / VT52-Identify auto-responder.
   "PADAWAN" -> "UNKNOWN" rotation), so a host that asks via both
   the in-band Telnet option and the inline ESC query gets the same
   answer.
+
+
+[2026-05-31] include/personality.h, src/personality.c, src/pad.c,
+src/x28_signals.c - personality-specific "pseudo" X.3 parameter IDs
+accepted as silent no-ops.
+
+  Scope: personality-conditional. The default ("strict X.28")
+  personality still rejects parameter IDs outside
+  [X3_PAR_MIN..X3_PAR_MAX] with ERR. The Telenet personality is
+  configured to accept three additional IDs as legal-but-no-op:
+
+      0, 57, 63
+
+  These IDs appear in a SET? command emitted by the 1980s
+  QuantumLink (Q-Link) terminal client software when it connects
+  to a Telenet PAD: specifically, "SET? 10:0,15:0,0:33,57:1,63:0"
+  sent immediately after the Telenet "@" prompt arrives. The
+  capture this was observed in was taken 2026-05-31. Authoritative
+  Telenet documentation for what these pseudo-parameters meant
+  has not been located. They have working semantic value in a real
+  Telenet user-client context (Q-Link was carefully built to
+  drive Telenet's PADs and is unlikely to send commands it
+  expects to fail), so the most charitable reading is that they
+  are network-specific extensions in the Telenet pseudo-parameter
+  number-space common to PSPDNs.
+
+  Implementation:
+    - personality_t gains `extended_param_ids` (const uint8 *)
+      and `extended_param_count` (uint8) fields. NULL/0 = strict
+      X.28 (the default).
+    - x28_parse_command() takes the pseudo-id list as new
+      parameters; parse_ref_list / parse_pair_list widen the
+      [X3_PAR_MIN..X3_PAR_MAX] range check to also accept IDs in
+      this list.
+    - The PAD SET dispatcher (classify_set_batch /
+      X28_CMD_SET_READ) and the PAR dispatcher (X28_CMD_PAR) gate
+      via is_personality_pseudo(): pseudos are silently accepted
+      without calling x3_set, and any read-back reports value 0
+      (we do not store pseudo values in p->params.values[]).
+    - The SET? readback reports the pseudo IDs in the response
+      pair list with value 0 and the INV flag clear, so a client
+      that parses the readback sees the same shape as a normal
+      SET?.
+
+  Promotability: if/when documentation surfaces describing what
+  any of 0, 57, or 63 were meant to do, the pseudo-acceptance
+  path can be replaced with real X.3-style behaviour for that
+  ID without touching the public API (just augment the SET / PAR
+  dispatchers' switch on ref). The current treatment is
+  "tolerant Telenet client" rather than "implements the real
+  semantics."

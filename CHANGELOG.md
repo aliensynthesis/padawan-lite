@@ -4,6 +4,60 @@ All notable changes to Padawan-Lite are recorded here. The format
 follows [Keep a Changelog](https://keepachangelog.com/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.5.5] — 2026-05-31
+
+### Added
+
+- **Telenet pseudo-parameter acceptance** for X.3 parameter IDs
+  `0`, `57`, `63`. Sourced from a 1980s QuantumLink (Q-Link)
+  terminal-client capture: the client emits
+  `SET? 10:0,15:0,0:33,57:1,63:0` immediately after the Telenet
+  `@` prompt arrives. Pre-v1.5.5 the parser rejected the whole
+  command with `?` (X.28 ERR) on the first out-of-range ID,
+  which looked to the client like a network-side fault.
+
+  Treatment is **silent no-op, personality-scoped**:
+
+  - `personality_t` gains an `extended_param_ids` array +
+    `extended_param_count`. The default personality leaves it
+    `NULL` / `0` (strict X.28; still rejects with `?`).
+  - The Telenet personality registers `{0, 57, 63}`.
+  - `x28_parse_command()` takes the pseudo-id list as new
+    arguments; `parse_ref_list` / `parse_pair_list` widen the
+    `[X3_PAR_MIN..X3_PAR_MAX]` check to also accept IDs in this
+    list. Signature change: callers update accordingly (only
+    `src/pad.c` and the test harnesses).
+  - PAD dispatchers (`classify_set_batch`, `X28_CMD_SET_READ`,
+    `X28_CMD_PAR`) gate via a new `is_personality_pseudo()`
+    helper: pseudos are silently accepted without calling
+    `x3_set`, and `PAR?` / `SET?` readback reports value `0`
+    for them.
+
+  Authoritative Telenet documentation describing what these IDs
+  actually meant has not been located. The current treatment is
+  "tolerant Telenet client" rather than "implements the real
+  semantics"; the acceptance path is promotable to real
+  behaviour without an API change if documentation surfaces.
+  See `deviations.txt` [2026-05-31] for the architecture and
+  citation note.
+
+### Verified
+
+- `tests/test_x28_signals` extended with
+  `test_parse_set_accepts_pseudo_ids` (15 assertions): proves
+  that the parser rejects `SET 0:33` / `SET 57:1` / `PAR? 63`
+  by default, accepts them under a pseudo-id-equipped
+  personality, and that a mixed command
+  `SET? 10:0,15:0,0:33,57:1,63:0` parses into a 5-pair
+  `x28_command_t` with the pseudos in their expected slots.
+- `tests/test_personality` extended with
+  `test_telenet_pseudo_param_table_publishes_qlink_set`
+  (8 assertions): confirms the Telenet personality publishes
+  `{0, 57, 63}` and the default personality publishes nothing.
+- Full suite 886 assertions / 8 binaries, all green.
+
+[1.5.5]: https://example.invalid/padawan-lite/releases/tag/v1.5.5
+
 ## [1.5.4] — 2026-05-31
 
 ### Changed (internal)

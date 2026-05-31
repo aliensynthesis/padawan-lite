@@ -34,14 +34,22 @@
 
 static int parse(const char *s, x28_command_t *out)
 {
-    return x28_parse_command(s, (uint32)strlen(s), NULL, out);
+    return x28_parse_command(s, (uint32)strlen(s), NULL, NULL, 0, out);
 }
 
 static int parse_with_aliases(const char *s,
                               const x28_command_alias_t *aliases,
                               x28_command_t *out)
 {
-    return x28_parse_command(s, (uint32)strlen(s), aliases, out);
+    return x28_parse_command(s, (uint32)strlen(s), aliases, NULL, 0, out);
+}
+
+static int parse_with_pseudo(const char *s,
+                             const uint8 *pseudo_ids, uint8 pseudo_count,
+                             x28_command_t *out)
+{
+    return x28_parse_command(s, (uint32)strlen(s), NULL,
+                             pseudo_ids, pseudo_count, out);
 }
 
 /* ---- command parsing -------------------------------------------------- */
@@ -115,6 +123,46 @@ static void test_parse_set_rejects_bad_ref(void)
     ASSERT_EQ_INT(parse("SET 0:0",   &cmd), X28_PARSE_ERR_BAD_REF);
     ASSERT_EQ_INT(parse("SET 31:0",  &cmd), X28_PARSE_ERR_BAD_REF);
     ASSERT_EQ_INT(parse("SET 255:0", &cmd), X28_PARSE_ERR_BAD_REF);
+}
+
+/* Personality-supplied pseudo IDs widen the parser's acceptance range
+   so SET/SET?/PAR? on those IDs no longer return BAD_REF. The PAD
+   dispatcher still ignores them (no-op SET, value 0 on readback);
+   this test only covers the parser surface. Inspired by the
+   QuantumLink 1980s client capture: SET? 0:33,57:1,63:0. */
+static void test_parse_set_accepts_pseudo_ids(void)
+{
+    x28_command_t cmd;
+    static const uint8 qlink_ids[] = { 0, 57, 63 };
+
+    /* Without the personality's pseudo list: standard reject. */
+    ASSERT_EQ_INT(parse("SET 0:33",  &cmd), X28_PARSE_ERR_BAD_REF);
+    ASSERT_EQ_INT(parse("SET 57:1",  &cmd), X28_PARSE_ERR_BAD_REF);
+    ASSERT_EQ_INT(parse("PAR? 63",   &cmd), X28_PARSE_ERR_BAD_REF);
+
+    /* With the pseudo list: accepted, value retained in cmd.params[]
+       for the dispatcher to inspect (and ignore). */
+    ASSERT_EQ_INT(parse_with_pseudo("SET 0:33", qlink_ids, 3, &cmd),
+                  X28_PARSE_OK);
+    ASSERT_EQ_INT(cmd.type, X28_CMD_SET);
+    ASSERT_EQ_INT(cmd.param_count, 1);
+    ASSERT_EQ_INT(cmd.params[0].ref,   0);
+    ASSERT_EQ_INT(cmd.params[0].value, 33);
+
+    /* QuantumLink composite: mix of valid (10, 15) and pseudo (0, 57,
+       63) IDs, all in one SET?. */
+    ASSERT_EQ_INT(parse_with_pseudo(
+                      "SET? 10:0,15:0,0:33,57:1,63:0", qlink_ids, 3, &cmd),
+                  X28_PARSE_OK);
+    ASSERT_EQ_INT(cmd.type, X28_CMD_SET_READ);
+    ASSERT_EQ_INT(cmd.param_count, 5);
+    ASSERT_EQ_INT(cmd.params[2].ref,   0);   /* pseudo */
+    ASSERT_EQ_INT(cmd.params[3].ref,   57);  /* pseudo */
+    ASSERT_EQ_INT(cmd.params[4].ref,   63);  /* pseudo */
+
+    /* An ID *not* in the personality's pseudo list still rejects. */
+    ASSERT_EQ_INT(parse_with_pseudo("SET 99:7", qlink_ids, 3, &cmd),
+                  X28_PARSE_ERR_BAD_REF);
 }
 
 static void test_parse_prof(void)
@@ -724,6 +772,7 @@ int main(void)
     test_parse_set_read();
     test_parse_set_accepts_any_value();
     test_parse_set_rejects_bad_ref();
+    test_parse_set_accepts_pseudo_ids();
     test_parse_prof();
     test_parse_simple_commands();
     test_parse_remote();

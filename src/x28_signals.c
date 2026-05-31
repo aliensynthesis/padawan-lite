@@ -112,10 +112,27 @@ static int match_kw(const char *s, uint32 i, uint32 len,
 
 /* --- argument-list parsers ---------------------------------------------- */
 
+/* Returns 1 iff `ref` appears in the optional pseudo-param list. Used
+   by parse_ref_list / parse_pair_list to widen the legal range when
+   the active personality opts in (see x28_parse_command's pseudo_ids
+   parameter and personality_t.extended_param_ids in personality.h). */
+static int is_pseudo_param(uint8 ref,
+                           const uint8 *pseudo_ids,
+                           uint8        pseudo_count)
+{
+    uint8 i;
+    if (pseudo_ids == NULL) return 0;
+    for (i = 0; i < pseudo_count; i++) {
+        if (pseudo_ids[i] == ref) return 1;
+    }
+    return 0;
+}
+
 /* Parse a comma-separated list of parameter references into out->params[].
    Used by PAR? and RPAR?. An empty list is allowed and is treated by the
    spec as "all parameters" (caller decides). */
 static int parse_ref_list(const char *s, uint32 i, uint32 len,
+                          const uint8 *pseudo_ids, uint8 pseudo_count,
                           x28_command_t *out)
 {
     uint8 ref;
@@ -131,7 +148,9 @@ static int parse_ref_list(const char *s, uint32 i, uint32 len,
             return X28_PARSE_ERR_SYNTAX;
         }
         if (ref < X3_PAR_MIN || ref > X3_PAR_MAX) {
-            return X28_PARSE_ERR_BAD_REF;
+            if (!is_pseudo_param(ref, pseudo_ids, pseudo_count)) {
+                return X28_PARSE_ERR_BAD_REF;
+            }
         }
         if (out->param_count >= X28_MAX_PARAMS) {
             return X28_PARSE_ERR_OVERFLOW;
@@ -149,6 +168,7 @@ static int parse_ref_list(const char *s, uint32 i, uint32 len,
 
 /* Parse a comma-separated list of ref:value pairs. Used by SET, SET?, RSET. */
 static int parse_pair_list(const char *s, uint32 i, uint32 len,
+                           const uint8 *pseudo_ids, uint8 pseudo_count,
                            x28_command_t *out)
 {
     uint8 ref;
@@ -162,7 +182,11 @@ static int parse_pair_list(const char *s, uint32 i, uint32 len,
     for (;;) {
         i = skip_ignored(s, i, len);
         if (!parse_u8(s, i, len, &ref, &i)) return X28_PARSE_ERR_SYNTAX;
-        if (ref < X3_PAR_MIN || ref > X3_PAR_MAX) return X28_PARSE_ERR_BAD_REF;
+        if (ref < X3_PAR_MIN || ref > X3_PAR_MAX) {
+            if (!is_pseudo_param(ref, pseudo_ids, pseudo_count)) {
+                return X28_PARSE_ERR_BAD_REF;
+            }
+        }
 
         i = skip_ignored(s, i, len);
         if (i >= len || (uint8)s[i] != IA5_COLON) return X28_PARSE_ERR_SYNTAX;
@@ -392,6 +416,8 @@ static uint32 match_alias(const char *s, uint32 i, uint32 len,
 
 int x28_parse_command(const char *input, uint32 len,
                       const x28_command_alias_t *aliases,
+                      const uint8 *pseudo_ids,
+                      uint8        pseudo_count,
                       x28_command_t *out)
 {
     uint32 i = 0;
@@ -419,13 +445,15 @@ int x28_parse_command(const char *input, uint32 len,
             return X28_PARSE_ERR_SYNTAX;
         }
         out->type = X28_CMD_RPAR;
-        return parse_ref_list(input, i + 5, len, out);
+        return parse_ref_list(input, i + 5, len,
+                              pseudo_ids, pseudo_count, out);
     }
 
     /* RSET p:v[,...] - remote set and read */
     if (match_kw(input, i, len, "RSET", 4)) {
         out->type = X28_CMD_RSET;
-        return parse_pair_list(input, i + 4, len, out);
+        return parse_pair_list(input, i + 4, len,
+                               pseudo_ids, pseudo_count, out);
     }
 
     /* ICLR - invitation to clear (§3.5.8.2) */
@@ -463,7 +491,8 @@ int x28_parse_command(const char *input, uint32 len,
             return X28_PARSE_ERR_SYNTAX;
         }
         out->type = X28_CMD_PAR;
-        return parse_ref_list(input, i + 4, len, out);
+        return parse_ref_list(input, i + 4, len,
+                              pseudo_ids, pseudo_count, out);
     }
 
     /* SET / SET? (§3.5.6) */
@@ -475,7 +504,8 @@ int x28_parse_command(const char *input, uint32 len,
         } else {
             out->type = X28_CMD_SET;
         }
-        return parse_pair_list(input, next, len, out);
+        return parse_pair_list(input, next, len,
+                               pseudo_ids, pseudo_count, out);
     }
 
     /* CLR (§3.5.8.1). Optional facility/user-data block is deferred. */
@@ -501,7 +531,8 @@ int x28_parse_command(const char *input, uint32 len,
     }
     if (match_kw(input, i, len, "PARAMETER", 9)) {
         out->type = X28_CMD_PAR;
-        return parse_ref_list(input, i + 9, len, out);
+        return parse_ref_list(input, i + 9, len,
+                              pseudo_ids, pseudo_count, out);
     }
     if (match_kw(input, i, len, "LANGUAGE", 8)) {
         out->type = X28_CMD_LANG;
@@ -509,11 +540,13 @@ int x28_parse_command(const char *input, uint32 len,
     }
     if (match_kw(input, i, len, "RSETREAD", 8)) {
         out->type = X28_CMD_RSET;
-        return parse_pair_list(input, i + 8, len, out);
+        return parse_pair_list(input, i + 8, len,
+                               pseudo_ids, pseudo_count, out);
     }
     if (match_kw(input, i, len, "SETREAD", 7)) {
         out->type = X28_CMD_SET_READ;
-        return parse_pair_list(input, i + 7, len, out);
+        return parse_pair_list(input, i + 7, len,
+                               pseudo_ids, pseudo_count, out);
     }
     if (match_kw(input, i, len, "PROFILE", 7)) {
         uint32 next = i + 7;
@@ -535,7 +568,8 @@ int x28_parse_command(const char *input, uint32 len,
     }
     if (match_kw(input, i, len, "RREAD", 5)) {
         out->type = X28_CMD_RPAR;
-        return parse_ref_list(input, i + 5, len, out);
+        return parse_ref_list(input, i + 5, len,
+                              pseudo_ids, pseudo_count, out);
     }
     if (match_kw(input, i, len, "CLEAR", 5)) {
         out->type = X28_CMD_CLR;
@@ -557,7 +591,8 @@ int x28_parse_command(const char *input, uint32 len,
     }
     if (match_kw(input, i, len, "READ", 4)) {
         out->type = X28_CMD_PAR;
-        return parse_ref_list(input, i + 4, len, out);
+        return parse_ref_list(input, i + 4, len,
+                              pseudo_ids, pseudo_count, out);
     }
     if (match_kw(input, i, len, "LANG", 4)) {
         out->type = X28_CMD_LANG;
