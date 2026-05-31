@@ -59,6 +59,7 @@
 #include "pad.h"
 #include "pcp.h"
 #include "term_id.h"
+#include "telos.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -77,29 +78,6 @@
 
 #define BRIDGE_MAX_CALLS 16
 
-typedef enum {
-    IAC_NORMAL = 0,
-    IAC_AFTER_IAC,
-    IAC_AFTER_VERB,
-    IAC_IN_SB,
-    IAC_IN_SB_AFTER_IAC
-} iac_state_t;
-
-/* RFC 1143 Q-method per-option agreement states. Same shape as in
-   bridge/user_telnet.h; declared independently here so the bridge
-   directory stays a self-contained extraction unit. */
-typedef enum {
-    BQ_NO       = 0,
-    BQ_YES      = 1,
-    BQ_WANTYES  = 2,
-    BQ_WANTNO   = 3
-} bridge_q_t;
-
-/* Q-state for options 0..31 (covers BINARY=0, ECHO=1, SGA=3,
-   TTYPE=24, NAWS=31). Requests for options >= 32 are refused
-   statelessly. */
-#define BRIDGE_OPT_TABLE 32
-
 typedef struct {
     int            in_use;
     int            fd;
@@ -111,12 +89,12 @@ typedef struct {
        reused slot can be detected (call_slot returns NULL on mismatch). */
     uint32         generation;
 
-    /* IAC state machine (per-connection). */
-    iac_state_t    iac_state;
-    uint8          iac_verb;
-    uint8          sb_option;
-    uint8          sb_subcmd;
-    uint8          sb_seen;
+    /* Embedded Telnet protocol engine in client role. As of v1.5.4
+       all IAC parsing, Q-method state for all 256 options, NVT
+       line-end normalisation, and subneg framing delegate here.
+       The bridge keeps only host-facing application-level state
+       (NAWS dimensions, TTYPE rotation index, ANSI DA interceptor). */
+    telos_session_t telos;
 
     /* NAWS state (per-connection). */
     int            naws_active;
@@ -124,13 +102,8 @@ typedef struct {
     uint16         naws_height;
 
     /* RFC 1091 TERMINAL-TYPE rotation index: how many SB TTYPE IS
-       responses we've sent on this connection. */
+       responses we've sent on this connection. Telemetry only. */
     uint8          ttype_index;
-
-    /* RFC 1143 Q-method per-option agreement state. Required to
-       break re-offer/re-reply loops with stateless peers. */
-    bridge_q_t     us[BRIDGE_OPT_TABLE];
-    bridge_q_t     him[BRIDGE_OPT_TABLE];
 
     /* Inline DA query interceptor state. Watches host->user bytes
        for ESC [ c / ESC [ <param> c (DA1) and ESC Z (VT52 Identify)
@@ -230,6 +203,14 @@ static int parse_port(const char *s)
 
 /* --- slot allocation -------------------------------------------------- */
 
+/* Forward decls for the Telos callbacks installed at slot init time;
+   the definitions live further down in the file alongside the rest
+   of the Telnet handling. */
+static int  bridge_policy_cb(void *ctx, uint8 option,
+                             telos_direction_t dir);
+static void bridge_event_cb (void *ctx, const telos_event_t *ev);
+static void bridge_write_cb (void *ctx, const uint8 *bytes, uint32 len);
+
 /* Encoding: low 8 bits = slot index (BRIDGE_MAX_CALLS is small),
    high 24 bits = generation. Generation rolls over after 16M reuses
    per slot, which is fine for any realistic deployment. */
@@ -248,9 +229,19 @@ static int alloc_slot(uint32 *gen_out)
             g_calls[i].in_use      = 1;
             g_calls[i].generation  = next_gen;
             g_calls[i].fd          = -1;
-            g_calls[i].iac_state   = IAC_NORMAL;
             g_calls[i].naws_width  = g_default_naws_width;
             g_calls[i].naws_height = g_default_naws_height;
+            /* Initialise the embedded Telos session in client role.
+               No TELOS_FLAG_NVT_LINE_ENDING here: the host->user
+               byte stream feeds a real terminal, which needs the LF
+               in CR LF kept intact to advance to the next line. The
+               PAD-side user_telnet session does set the flag (PAD
+               command parser at the @ prompt wants bare CR). */
+            telos_init(&g_calls[i].telos,
+                       TELOS_ROLE_CLIENT,
+                       0,
+                       bridge_policy_cb, bridge_event_cb, bridge_write_cb,
+                       &g_calls[i]);
             if (gen_out) *gen_out = next_gen;
             return i;
         }
@@ -295,14 +286,11 @@ static void slot_close(bridge_call_t *s)
         s->fd = -1;
     }
     s->connecting = 0;
-    s->iac_state  = IAC_NORMAL;
-    s->iac_verb   = 0;
-    s->sb_option  = 0;
-    s->sb_subcmd  = 0;
-    s->sb_seen    = 0;
     s->naws_active = 0;
     s->ttype_index = 0;
     s->in_use     = 0;
+    /* Telos state is left as-is; the next alloc_slot will memset and
+       telos_init the slot afresh. */
     s->session    = NULL;
 }
 
@@ -323,162 +311,10 @@ static void slot_close(bridge_call_t *s)
 #define TELNET_TTYPE_IS    0
 #define TELNET_TTYPE_SEND  1
 
-/* Forward-declared so send_negotiation_response can push an NAWS SB
-   immediately after agreeing WILL NAWS. */
+/* Forward decls for the send helpers; bridge_event_cb invokes them
+   in response to subneg / option events from Telos. */
 static void send_naws_sb(bridge_call_t *s);
-
-/* Write a 3-byte IAC verb-option sequence on the host socket. */
-static void write_iac3_bridge(int fd, uint8 verb, uint8 option)
-{
-    uint8 buf[3];
-    if (fd < 0) return;
-    buf[0] = TELNET_IAC;
-    buf[1] = verb;
-    buf[2] = option;
-    (void)!write(fd, buf, 3);
-}
-
-/* Policy: which options do WE agree to do for the host? */
-static int policy_us_bridge(uint8 option)
-{
-    return (option == TELNET_OPT_BINARY ||
-            option == TELNET_OPT_SGA    ||
-            option == TELNET_OPT_TTYPE  ||
-            option == TELNET_OPT_NAWS);
-}
-
-/* Policy: which options do we want the host to do? */
-static int policy_him_bridge(uint8 option)
-{
-    return (option == TELNET_OPT_BINARY ||
-            option == TELNET_OPT_SGA);
-}
-
-/* Q-method gated WILL/DO senders. See user_telnet.c for the longer
-   commentary on why these matter; same shape, separate state field. */
-static void send_will_bridge(bridge_call_t *s, uint8 option)
-{
-    if (option >= BRIDGE_OPT_TABLE) return;
-    if (s->us[option] == BQ_YES || s->us[option] == BQ_WANTYES) return;
-    s->us[option] = BQ_WANTYES;
-    write_iac3_bridge(s->fd, TELNET_WILL, option);
-}
-
-static void send_do_bridge(bridge_call_t *s, uint8 option)
-{
-    if (option >= BRIDGE_OPT_TABLE) return;
-    if (s->him[option] == BQ_YES || s->him[option] == BQ_WANTYES) return;
-    s->him[option] = BQ_WANTYES;
-    write_iac3_bridge(s->fd, TELNET_DO, option);
-}
-
-/* When we transition us[NAWS] from NO/WANTYES to YES we owe the host
-   our current window dimensions as a TELNET SB. Used by both
-   send_will_bridge_with_naws (during recv_do) and the initial send. */
-static void maybe_push_naws_after_yes(bridge_call_t *s, uint8 option)
-{
-    if (option == TELNET_OPT_NAWS && s->us[option] == BQ_YES) {
-        s->naws_active = 1;
-        send_naws_sb(s);
-    }
-}
-
-static void recv_will_bridge(bridge_call_t *s, uint8 option)
-{
-    if (option >= BRIDGE_OPT_TABLE) {
-        write_iac3_bridge(s->fd, TELNET_DONT, option);
-        return;
-    }
-    switch (s->him[option]) {
-    case BQ_NO:
-        if (policy_him_bridge(option)) {
-            s->him[option] = BQ_YES;
-            write_iac3_bridge(s->fd, TELNET_DO, option);
-        } else {
-            write_iac3_bridge(s->fd, TELNET_DONT, option);
-        }
-        break;
-    case BQ_YES:
-        break;
-    case BQ_WANTYES:
-        s->him[option] = BQ_YES;
-        break;
-    case BQ_WANTNO:
-        s->him[option] = BQ_NO;
-        break;
-    }
-}
-
-static void recv_wont_bridge(bridge_call_t *s, uint8 option)
-{
-    if (option >= BRIDGE_OPT_TABLE) return;
-    switch (s->him[option]) {
-    case BQ_NO:
-        break;
-    case BQ_YES:
-        s->him[option] = BQ_NO;
-        write_iac3_bridge(s->fd, TELNET_DONT, option);
-        break;
-    case BQ_WANTYES:
-    case BQ_WANTNO:
-        s->him[option] = BQ_NO;
-        break;
-    }
-}
-
-static void recv_do_bridge(bridge_call_t *s, uint8 option)
-{
-    if (option >= BRIDGE_OPT_TABLE) {
-        write_iac3_bridge(s->fd, TELNET_WONT, option);
-        return;
-    }
-    switch (s->us[option]) {
-    case BQ_NO:
-        if (policy_us_bridge(option)) {
-            s->us[option] = BQ_YES;
-            write_iac3_bridge(s->fd, TELNET_WILL, option);
-            maybe_push_naws_after_yes(s, option);
-        } else {
-            write_iac3_bridge(s->fd, TELNET_WONT, option);
-        }
-        break;
-    case BQ_YES:
-        break;
-    case BQ_WANTYES:
-        s->us[option] = BQ_YES;
-        maybe_push_naws_after_yes(s, option);
-        break;
-    case BQ_WANTNO:
-        s->us[option] = BQ_NO;
-        break;
-    }
-}
-
-static void recv_dont_bridge(bridge_call_t *s, uint8 option)
-{
-    if (option >= BRIDGE_OPT_TABLE) return;
-    switch (s->us[option]) {
-    case BQ_NO:
-        break;
-    case BQ_YES:
-        s->us[option] = BQ_NO;
-        write_iac3_bridge(s->fd, TELNET_WONT, option);
-        break;
-    case BQ_WANTYES:
-    case BQ_WANTNO:
-        s->us[option] = BQ_NO;
-        break;
-    }
-}
-
-static void send_negotiation_response(bridge_call_t *s,
-                                      uint8 verb, uint8 option)
-{
-    if      (verb == TELNET_WILL) recv_will_bridge (s, option);
-    else if (verb == TELNET_WONT) recv_wont_bridge (s, option);
-    else if (verb == TELNET_DO)   recv_do_bridge   (s, option);
-    else if (verb == TELNET_DONT) recv_dont_bridge (s, option);
-}
+static void send_terminal_type(bridge_call_t *s);
 
 /* Resolve the effective terminal identity for a bridge call. The
    precedence chain (highest first):
@@ -520,52 +356,139 @@ int x25_bridge_set_ttype_claim(const char *name)
     return 0;
 }
 
+/* Telos policy: which options do WE agree to in each direction?
+   Same answers as the pre-Telos policy_us_bridge / policy_him_bridge
+   helpers, now expressed as a single direction-keyed callback. */
+static int bridge_policy_cb(void *ctx, uint8 option, telos_direction_t dir)
+{
+    (void)ctx;
+    if (dir == TELOS_DIR_LOCAL) {
+        return (option == TELOS_OPT_BINARY ||
+                option == TELOS_OPT_SGA    ||
+                option == TELOS_OPT_TTYPE  ||
+                option == TELOS_OPT_NAWS);
+    }
+    /* TELOS_DIR_REMOTE: do we want the HOST to do this option? */
+    return (option == TELOS_OPT_BINARY ||
+            option == TELOS_OPT_SGA);
+}
+
+/* Telos event dispatch for the host side. Three event types matter
+   to us:
+     - DATA: clean post-IAC host-to-PAD bytes. Run them through the
+       ANSI DA query interceptor (term_id_filter), write any DA reply
+       back to the host, then forward the survivors to pad_input_remote.
+     - SUBNEG: handle the two RFC 1091 / RFC 1073 subnegs we care
+       about. NAWS from the host is meaningless (host is the server;
+       NAWS is client->server only). TTYPE SEND triggers our IS reply.
+     - OPTION_ENABLED: when WE turn NAWS on (us[NAWS] = YES), push our
+       current dimensions in a follow-up SB so the host sees them
+       without us waiting for it to ask. */
+static void bridge_event_cb(void *ctx, const telos_event_t *ev)
+{
+    bridge_call_t *s = (bridge_call_t *)ctx;
+
+    switch (ev->type) {
+    case TELOS_EV_DATA: {
+        /* Telos delivers data events in chunks of at most its
+           internal outbuf size (currently 256 bytes). We copy to a
+           local buffer so term_id_filter_process can do its in-place
+           transform without mutating Telos's internal buffer. */
+        uint8  data[256];
+        uint8  resp[64];
+        uint32 dlen     = ev->u.data.len;
+        uint32 resp_len = 0;
+        uint32 filtered_len;
+        if (dlen > sizeof(data)) dlen = sizeof(data);
+        if (dlen == 0) break;
+        memcpy(data, ev->u.data.bytes, dlen);
+        filtered_len = term_id_filter_process(
+            &s->term_id, effective_term_id(s),
+            data, dlen, data,
+            resp, sizeof(resp), &resp_len);
+        if (resp_len > 0 && s->fd >= 0) {
+            (void)!write(s->fd, resp, resp_len);
+        }
+        if (filtered_len > 0 && s->session != NULL) {
+            /* User-data flow from the Telnet peer is always qbit=0;
+               true X.29 needs a real X.25 transport. */
+            pad_input_remote(s->session, data, filtered_len, 0);
+        }
+        break;
+    }
+
+    case TELOS_EV_SUBNEG:
+        if (ev->u.subneg.option == TELOS_OPT_TTYPE &&
+            ev->u.subneg.body_len >= 1 &&
+            ev->u.subneg.body[0] == TELNET_TTYPE_SEND) {
+            send_terminal_type(s);
+        }
+        /* SB NAWS from host (RFC 1073): NAWS is documented as a
+           client->server option; we are the client, so a host
+           sending us its window size is out of scope. Silently
+           ignore. */
+        break;
+
+    case TELOS_EV_OPTION_ENABLED:
+        if (ev->u.option.option == TELOS_OPT_NAWS &&
+            ev->u.option.direction == TELOS_DIR_LOCAL) {
+            s->naws_active = 1;
+            send_naws_sb(s);
+        }
+        break;
+
+    default:
+        /* COMMAND, OPTION_DISABLED, PROTO_ERROR not consumed. */
+        break;
+    }
+}
+
+/* Telos write hook: emit IAC sequences and option-negotiation replies
+   directly to the host socket. */
+static void bridge_write_cb(void *ctx, const uint8 *bytes, uint32 len)
+{
+    bridge_call_t *s = (bridge_call_t *)ctx;
+    if (s->fd >= 0 && len > 0) {
+        (void)!write(s->fd, bytes, len);
+    }
+}
+
 static void send_terminal_type(bridge_call_t *s)
 {
-    static const uint8 prefix[] = {
-        TELNET_IAC, TELNET_SB, TELNET_OPT_TTYPE, TELNET_TTYPE_IS
-    };
-    static const uint8 suffix[] = { TELNET_IAC, TELNET_SE };
-    /* RFC 1091: the server may request TTYPE multiple times. We use
-       the same effective identity each time so the host sees a stable
-       name (and reaches the "list exhausted" condition immediately on
-       the second request). Identity comes from the precedence chain;
-       see effective_term_id(). */
+    /* RFC 1091 SB TT IS <name>. We use the effective identity
+       returned by effective_term_id() so a host that asks via the
+       inline DA query and via TTYPE subneg gets the same answer.
+       The pre-Telos rotation (PADAWAN -> UNKNOWN) is gone since
+       v1.5.0; on repeated SEND requests the host sees the same name
+       which it treats per RFC 1091 as the list-exhausted signal. */
     const term_id_entry_t *id;
-    const char *t;
-    size_t      tlen;
+    const char *name;
+    size_t      nlen;
+    uint8       body[64];
 
     if (s->fd < 0) return;
-    id = effective_term_id(s);
-    t = id->name;
-    tlen = strlen(t);
-    s->ttype_index++;   /* tracked for telemetry; no longer drives output */
-    (void)!write(s->fd, prefix, sizeof(prefix));
-    (void)!write(s->fd, t,      tlen);
-    (void)!write(s->fd, suffix, sizeof(suffix));
+    id   = effective_term_id(s);
+    name = id->name;
+    nlen = strlen(name);
+    if (nlen > sizeof(body) - 1) nlen = sizeof(body) - 1;
+    body[0] = TELNET_TTYPE_IS;
+    memcpy(body + 1, name, nlen);
+    s->ttype_index++;   /* telemetry only */
+    telos_send_subneg(&s->telos, TELOS_OPT_TTYPE, body, (uint32)(1 + nlen));
 }
 
 static void send_naws_sb(bridge_call_t *s)
 {
-    uint8 buf[16];
-    uint32 j = 0;
-    uint8 dims[4];
-    int   i;
+    /* RFC 1073 SB NAWS body: width_hi width_lo height_hi height_lo.
+       Telos handles the IAC IAC body escaping for any 0xFF in the
+       dimensions (e.g. width = 255). */
+    uint8 body[4];
     if (s->fd < 0) return;
-    dims[0] = (uint8)(s->naws_width  >> 8);
-    dims[1] = (uint8)(s->naws_width  & 0xFF);
-    dims[2] = (uint8)(s->naws_height >> 8);
-    dims[3] = (uint8)(s->naws_height & 0xFF);
-    buf[j++] = TELNET_IAC;
-    buf[j++] = TELNET_SB;
-    buf[j++] = TELNET_OPT_NAWS;
-    for (i = 0; i < 4; i++) {
-        buf[j++] = dims[i];
-        if (dims[i] == TELNET_IAC) buf[j++] = TELNET_IAC;
-    }
-    buf[j++] = TELNET_IAC;
-    buf[j++] = TELNET_SE;
-    (void)!write(s->fd, buf, j);
+    body[0] = (uint8)(s->naws_width  >> 8);
+    body[1] = (uint8)(s->naws_width  & 0xFF);
+    body[2] = (uint8)(s->naws_height >> 8);
+    body[3] = (uint8)(s->naws_height & 0xFF);
+    telos_send_subneg(&s->telos, TELOS_OPT_NAWS, body, 4);
 }
 
 static void send_initial_negotiation(bridge_call_t *s)
@@ -573,75 +496,12 @@ static void send_initial_negotiation(bridge_call_t *s)
     /* As a telnet client to the host we want:
          DO   SGA / WILL SGA       - char-at-a-time, no GA in either dir
          DO   BINARY / WILL BINARY - 8-bit clean
-       The pre-Q-method version also blasted DONT ECHO + WONT ECHO
-       unconditionally; those are redundant per RFC 1143 when both
-       sides start at Q_NO for ECHO (peer can't be echoing yet), so
-       we drop them. If the host later OFFERS WILL ECHO we'll refuse
-       it via policy_him_bridge, which excludes ECHO. */
-    send_do_bridge  (s, TELNET_OPT_SGA);
-    send_will_bridge(s, TELNET_OPT_SGA);
-    send_do_bridge  (s, TELNET_OPT_BINARY);
-    send_will_bridge(s, TELNET_OPT_BINARY);
-}
-
-static uint32 filter_iac(bridge_call_t *s,
-                         const uint8 *in, uint32 in_len, uint8 *out)
-{
-    uint32 i, j = 0;
-    for (i = 0; i < in_len; i++) {
-        uint8 b = in[i];
-        switch (s->iac_state) {
-        case IAC_NORMAL:
-            if (b == TELNET_IAC) {
-                s->iac_state = IAC_AFTER_IAC;
-            } else {
-                out[j++] = b;
-            }
-            break;
-        case IAC_AFTER_IAC:
-            if (b == TELNET_IAC) {
-                out[j++] = TELNET_IAC;
-                s->iac_state = IAC_NORMAL;
-            } else if (b == TELNET_WILL || b == TELNET_WONT ||
-                       b == TELNET_DO   || b == TELNET_DONT) {
-                s->iac_verb  = b;
-                s->iac_state = IAC_AFTER_VERB;
-            } else if (b == TELNET_SB) {
-                s->sb_option = 0;
-                s->sb_subcmd = 0;
-                s->sb_seen   = 0;
-                s->iac_state = IAC_IN_SB;
-            } else {
-                s->iac_state = IAC_NORMAL;
-            }
-            break;
-        case IAC_AFTER_VERB:
-            send_negotiation_response(s, s->iac_verb, b);
-            s->iac_state = IAC_NORMAL;
-            break;
-        case IAC_IN_SB:
-            if (b == TELNET_IAC) {
-                s->iac_state = IAC_IN_SB_AFTER_IAC;
-            } else {
-                if (s->sb_seen == 0)      s->sb_option = b;
-                else if (s->sb_seen == 1) s->sb_subcmd = b;
-                if (s->sb_seen < 255)     s->sb_seen++;
-            }
-            break;
-        case IAC_IN_SB_AFTER_IAC:
-            if (b == TELNET_SE) {
-                if (s->sb_option == TELNET_OPT_TTYPE &&
-                    s->sb_subcmd == TELNET_TTYPE_SEND) {
-                    send_terminal_type(s);
-                }
-                s->iac_state = IAC_NORMAL;
-            } else {
-                s->iac_state = IAC_IN_SB;
-            }
-            break;
-        }
-    }
-    return j;
+       Telos's offer_* helpers are idempotent (no-op on YES/WANTYES)
+       and gate the WILL/DO emission through Q-state per RFC 1143. */
+    telos_offer_do  (&s->telos, TELOS_OPT_SGA);
+    telos_offer_will(&s->telos, TELOS_OPT_SGA);
+    telos_offer_do  (&s->telos, TELOS_OPT_BINARY);
+    telos_offer_will(&s->telos, TELOS_OPT_BINARY);
 }
 
 /* --- bridge-specific API ---------------------------------------------- */
@@ -887,36 +747,15 @@ static void poll_one(bridge_call_t *s, short revents)
 
     if (revents & POLLIN) {
         uint8 raw[1024];
-        uint8 filtered[1024];
-        uint32 n_filtered;
         ssize_t n = read(s->fd, raw, sizeof(raw));
         if (n > 0) {
-            n_filtered = filter_iac(s, raw, (uint32)n, filtered);
-            if (n_filtered > 0) {
-                /* Intercept DEC ANSI DA1 / VT52 Identify queries and
-                   answer on behalf of the user's terminal. Most users
-                   on bridged transports (tcpser, raw netcat, scripted
-                   sessions) cannot reply to these inline ESC queries,
-                   and VMS/Unix/etc. fall back to "unknown terminal"
-                   when no answer comes back within their 4-second
-                   timeout. We swallow the query from the host-to-PAD
-                   data stream and write the appropriate DA response
-                   back to the host. See bridge/term_id.h. */
-                uint8  resp[64];
-                uint32 resp_len = 0;
-                n_filtered = term_id_filter_process(
-                    &s->term_id, effective_term_id(s),
-                    filtered, n_filtered, filtered,
-                    resp, sizeof(resp), &resp_len);
-                if (resp_len > 0 && s->fd >= 0) {
-                    (void)!write(s->fd, resp, resp_len);
-                }
-            }
-            if (n_filtered > 0) {
-                /* User-data flow from the Telnet peer is always qbit=0;
-                   true X.29 needs a real X.25 transport. */
-                pad_input_remote(s->session, filtered, n_filtered, 0);
-            }
+            /* Hand raw bytes to Telos. It will fire bridge_event_cb
+               for each DATA chunk (where we run the ANSI DA query
+               interceptor and forward the survivors to the PAD),
+               bridge_event_cb for SUBNEG events (TTYPE SEND triggers
+               our IS reply), and bridge_event_cb for OPTION_ENABLED
+               on local NAWS (we push our dimensions back). */
+            telos_recv(&s->telos, raw, (uint32)n);
         } else if (n == 0) {
             /* Clean FIN from remote: code 0 = DTE originated. */
             pad_session_t *sess = s->session;

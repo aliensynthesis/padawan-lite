@@ -202,6 +202,42 @@ int main(void)
               "7f: CR, IAC IAC (literal 0xFF), LF -> all three preserved");
     }
 
+    /* === Scenario 8: CR LF stripping survives BINARY=YES negotiation
+       (regression test for the v1.5.3/v1.5.4 issue where Telos's
+       RFC 856-correct BINARY-gating let the LF through to the PAD,
+       breaking the @ prompt). The fix is application-level
+       normalisation in user_telnet's event callback that doesn't
+       care about transport BINARY state. */
+    user_telnet_init(&t, sv[0]);
+    user_telnet_send_initial(&t);
+    /* Drain initial cluster from peer end. */
+    {
+        uint8 drain_buf[64];
+        (void)drain(sv[1], drain_buf, sizeof(drain_buf));
+    }
+    {
+        /* Simulate peer agreeing BINARY in both directions (which
+           is what tcpser does after our initial offers). */
+        static const uint8 binary_ack[] = {
+            0xFF, 0xFD, 0x00,   /* DO BINARY  (peer accepts our WILL BIN)  */
+            0xFF, 0xFB, 0x00    /* WILL BIN   (peer accepts our DO BIN)    */
+        };
+        uint8 out[16];
+        (void)user_telnet_filter(&t, binary_ack, sizeof(binary_ack), out);
+    }
+    {
+        /* With BINARY=YES in both directions, send CR LF.
+           The LF MUST still be dropped at the user_telnet layer
+           even though Telos's NVT_LINE_ENDING flag wouldn't
+           strip it. */
+        static const uint8 in[]  = { 'h','i', 0x0D, 0x0A };
+        uint8 out[16];
+        uint32 dlen = user_telnet_filter(&t, in, sizeof(in), out);
+        CHECK(dlen == 3 && out[0] == 'h' && out[1] == 'i' &&
+              out[2] == 0x0D,
+              "8:  CR LF still normalised to CR even after BINARY=YES");
+    }
+
     close(sv[0]);
     close(sv[1]);
 

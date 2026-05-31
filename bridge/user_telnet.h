@@ -70,6 +70,17 @@ typedef struct {
     uint8            *filter_out_buf;
     uint32            filter_out_len;
     uint32            filter_out_cap;
+
+    /* Application-level CR LF / CR NUL normalisation state. The X.28
+       command parser at the @ prompt uses bare CR as its sole
+       delimiter (X.28 §3.5.1) regardless of whether the underlying
+       Telnet transport has negotiated BINARY. Telos's
+       NVT_LINE_ENDING flag is RFC-correct (BINARY-gated per RFC 856)
+       and so cannot do this stripping when BINARY is YES; user_telnet
+       therefore performs its own pass in the event callback. State
+       must carry across telos_recv() calls because a CR can land in
+       one recv and its LF in the next. */
+    int               last_was_cr;
 } user_telnet_t;
 
 /* Reset state and remember the user socket fd. */

@@ -4,6 +4,105 @@ All notable changes to Padawan-Lite are recorded here. The format
 follows [Keep a Changelog](https://keepachangelog.com/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.5.4] — 2026-05-31
+
+### Changed (internal)
+
+- **`bridge/x25_telnet_bridge.c` migrated to Telos** (phase 3 of
+  the migration plan from v1.5.2). The host-side IAC half of the
+  bridge now uses a Telos client-role session per call. Gone:
+  the per-slot `iac_state` / `iac_verb` / `sb_option` /
+  `sb_subcmd` / `sb_seen` fields, the `us[]` / `him[]` Q-state
+  arrays, the `bridge_q_t` enum, the `BRIDGE_OPT_TABLE` macro,
+  the `filter_iac()` function, `send_negotiation_response`,
+  and the four `recv_*_bridge` helpers plus `send_will_bridge` /
+  `send_do_bridge` / `write_iac3_bridge` /
+  `maybe_push_naws_after_yes`.
+
+  What stays in `bridge/x25_telnet_bridge.c`:
+
+  - `bridge_policy_cb()` returning the same direction-keyed YES
+    set as before (LOCAL: BINARY/SGA/TTYPE/NAWS; REMOTE:
+    BINARY/SGA).
+  - `bridge_event_cb()` dispatching `TELOS_EV_DATA` through the
+    ANSI DA query interceptor and on to `pad_input_remote()`,
+    `TELOS_EV_SUBNEG` for TTYPE-SEND triggers (which now reply
+    via `telos_send_subneg()`), and `TELOS_EV_OPTION_ENABLED`
+    for the local-NAWS hook (which now pushes the dimensions
+    via `telos_send_subneg()` rather than hand-rolled framing).
+  - `bridge_write_cb()` writing to the host socket.
+  - `send_terminal_type()`, `send_naws_sb()`,
+    `send_initial_negotiation()` rewritten on top of
+    `telos_offer_*` / `telos_send_subneg`.
+
+  `effective_term_id()` and `x25_bridge_set_ttype_claim()` are
+  unchanged; the ANSI DA query interceptor (`term_id` filter) is
+  unchanged; the bridge's external API surface
+  (`x25_bridge_load_map`, `x25_bridge_set_window_size`, etc.) is
+  unchanged.
+
+  **Directional asymmetry on `TELOS_FLAG_NVT_LINE_ENDING`.** The
+  PAD-facing `user_telnet` session keeps the flag (X.28 §3.5.1
+  expects a bare CR at the @ prompt; CR LF must normalise to CR
+  on the receive side). The host-facing bridge session **does
+  not** set it: bytes from the host flow to a real terminal,
+  which needs the LF in CR LF intact to advance to the next
+  line. Pre-Telos `filter_iac` performed no normalisation in
+  this direction; the bridge migration preserves that.
+
+  Net diff: `bridge/x25_telnet_bridge.c` lost ~157 lines while
+  gaining the same functional surface upgrade as phase 2 (Telos
+  tracks all 256 options, not 32; all single-byte IAC commands
+  are parsed into events instead of silently dropped).
+
+### Verified
+
+- All previously-green test binaries still pass (870 assertions
+  across 8 binaries).
+- User-side initial-cluster smoke test against `padawan-lite
+  --emulate telenet --listen 29998` produces the byte-identical
+  18-byte option negotiation block, then the Telenet banner +
+  `TERMINAL=` prompt + `@` prompt — same as pre-migration.
+
+### Fixed
+
+- **CR LF / CR NUL stripping at the user-side `@` prompt
+  restored when transport BINARY is YES** (regression introduced
+  in v1.5.3). Background: Telos's `TELOS_FLAG_NVT_LINE_ENDING` is
+  RFC-correct in suspending NVT line-ending normalisation when
+  `him[BINARY]` is `YES` (RFC 856 §2). The v1.4.2 fix lived
+  inside `user_telnet_filter` and was *unconditional* because the
+  X.28 command parser (X.28 §3.5.1) uses bare CR as its sole
+  delimiter regardless of transport BINARY state. After phase 2
+  delegated CR LF normalisation to Telos's flag, peers that
+  negotiated BINARY=YES (e.g. tcpser) caused the LF to survive
+  to the PAD, which then buffered it as the leading byte of a
+  phantom next command -- visible as a stray byte after each `@`
+  prompt and as malformed dispatch of any subsequent command.
+
+  Fix: drop `TELOS_FLAG_NVT_LINE_ENDING` from
+  `user_telnet_init()`'s call to `telos_init`, and perform the
+  CR LF / CR NUL stripping in `user_telnet.c`'s event callback
+  with its own `last_was_cr` state on `user_telnet_t`. The
+  stripping is now unconditional at the user-telnet layer, as
+  it was in v1.4.2. Telos itself retains its RFC-correct
+  BINARY-gated behaviour for any other consumer that wants
+  spec-faithful normalisation.
+
+  New `tests/test_user_telnet` scenario 8 pins the regression:
+  drives a BINARY=YES negotiation and asserts that a subsequent
+  CR LF still emerges from `user_telnet_filter` as just CR.
+
+### Build
+
+- The two Telos forward declarations
+  (`bridge_policy_cb` / `bridge_event_cb` / `bridge_write_cb`)
+  live near `alloc_slot` so the slot initialiser can reference
+  them; the actual definitions stay alongside the rest of the
+  Telnet handling.
+
+[1.5.4]: https://example.invalid/padawan-lite/releases/tag/v1.5.4
+
 ## [1.5.3] — 2026-05-31
 
 ### Changed (internal)

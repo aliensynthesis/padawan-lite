@@ -80,21 +80,34 @@ static void event_cb(void *ctx, const telos_event_t *ev)
 {
     user_telnet_t *t = (user_telnet_t *)ctx;
     switch (ev->type) {
-    case TELOS_EV_DATA:
-        /* Accumulate into the caller's filter buffer. The transient
-           filter_out_* fields are set up by user_telnet_filter() for
-           the duration of one telos_recv() call. */
-        if (t->filter_out_buf != NULL && ev->u.data.len > 0) {
-            uint32 room = (t->filter_out_cap > t->filter_out_len)
-                          ? t->filter_out_cap - t->filter_out_len : 0;
-            uint32 n    = (ev->u.data.len < room) ? ev->u.data.len : room;
-            if (n > 0) {
-                memcpy(t->filter_out_buf + t->filter_out_len,
-                       ev->u.data.bytes, n);
-                t->filter_out_len += n;
+    case TELOS_EV_DATA: {
+        /* Accumulate into the caller's filter buffer, performing
+           application-level CR LF / CR NUL normalisation as we go.
+           This is intentionally NOT delegated to Telos's
+           TELOS_FLAG_NVT_LINE_ENDING because Telos's normalisation
+           is correctly suspended in BINARY mode per RFC 856 -- but
+           the PAD command parser wants bare CR regardless of
+           transport BINARY state. See last_was_cr field comment in
+           user_telnet.h. */
+        const uint8 *src = ev->u.data.bytes;
+        uint32       len = ev->u.data.len;
+        uint32       i;
+        if (t->filter_out_buf == NULL) break;
+        for (i = 0; i < len; i++) {
+            uint8 b = src[i];
+            if (t->last_was_cr && (b == 0x0A || b == 0x00)) {
+                /* Drop the trailing LF/NUL of a CR LF / CR NUL pair.
+                   The PAD sees only the bare CR. */
+                t->last_was_cr = 0;
+                continue;
             }
+            if (t->filter_out_len < t->filter_out_cap) {
+                t->filter_out_buf[t->filter_out_len++] = b;
+            }
+            t->last_was_cr = (b == 0x0D) ? 1 : 0;
         }
         break;
+    }
     case TELOS_EV_SUBNEG:
         /* RFC 1073: NAWS SB body is exactly four bytes:
              width_hi width_lo height_hi height_lo
@@ -131,9 +144,13 @@ void user_telnet_init(user_telnet_t *t, int fd)
 {
     memset(t, 0, sizeof(*t));
     t->fd = fd;
+    /* Note: we do NOT pass TELOS_FLAG_NVT_LINE_ENDING here. Telos's
+       BINARY-gated stripping is RFC-correct but wrong for our needs
+       (see last_was_cr comment in user_telnet.h). We do the
+       stripping unconditionally in event_cb instead. */
     telos_init(&t->telos,
                TELOS_ROLE_SERVER,
-               TELOS_FLAG_NVT_LINE_ENDING,
+               0,
                policy_cb, event_cb, write_cb, t);
 }
 
