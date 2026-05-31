@@ -56,6 +56,14 @@ int main(void)
     e = term_id_lookup("DUMB");
     CHECK(e != NULL && e->da1_response == NULL && e->escz_response == NULL,
           "lookup-DUMB: name found, both responses NULL");
+    e = term_id_lookup("UNKNOWN");
+    CHECK(e != NULL && strcmp(e->name, "UNKNOWN") == 0 &&
+          e->da1_response == NULL && e->escz_response == NULL,
+          "lookup-UNKNOWN: name found, both responses NULL");
+    e = term_id_lookup("ansi");
+    CHECK(e != NULL && strcmp(e->name, "ANSI") == 0 &&
+          e->da1_response == NULL && e->escz_response == NULL,
+          "lookup-ansi (lc): resolves to ANSI, both responses NULL");
     e = term_id_lookup("BOGUS");
     CHECK(e == NULL, "lookup-unknown: returns NULL");
     e = term_id_lookup("");
@@ -194,6 +202,27 @@ int main(void)
                   "filter-9a: DUMB still swallows the query");
             CHECK(resp_len == 0,
                   "filter-9b: DUMB emits no response (host falls back)");
+        }
+
+        /* 9c-9d. UNKNOWN and ANSI behave the same as DUMB at filter level
+           (both have NULL DA1/ESC Z); the difference is in the TTYPE-IS
+           name reported via subneg, not in inline DA handling. */
+        {
+            const term_id_entry_t *unknown = term_id_lookup("UNKNOWN");
+            const term_id_entry_t *ansi    = term_id_lookup("ANSI");
+            static const uint8 in[] = { 0x1B, '[', 'c' };
+
+            term_id_filter_init(&t);
+            n = term_id_filter_process(&t, unknown, in, sizeof(in),
+                                       out, resp, sizeof(resp), &resp_len);
+            CHECK(n == 0 && resp_len == 0,
+                  "filter-9c: UNKNOWN swallows DA query, no response");
+
+            term_id_filter_init(&t);
+            n = term_id_filter_process(&t, ansi, in, sizeof(in),
+                                       out, resp, sizeof(resp), &resp_len);
+            CHECK(n == 0 && resp_len == 0,
+                  "filter-9d: ANSI swallows DA query, no response");
         }
 
         /* 10. CSI overflow: 12 parameter bytes ESC[1;2;3;4;5;6m. */

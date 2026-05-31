@@ -22,7 +22,7 @@ padawan-lite [-c FILE] [-l PORT] [-a FILE] [-t] [-b BPS]
 | `--trace-line-mode`        | CLIENT entries flush on CR; SERVICE pairs with each line |
 | `--pcp-port PORT`          | PAD Control Protocol listener on `127.0.0.1:PORT`        |
 | `--emulate NAME`           | PAD personality: `default` (X.28), `telenet`             |
-| `--ttype-claim NAME`       | Default terminal-type claim to hosts (`vt52`/`vt100`/`vt102`/`vt220`/`xterm`/`dumb`; default `vt100`). A non-empty Telenet `TERMINAL=` response overrides per-session. Drives both Telnet TTYPE subnegotiation and the inline DEC DA1 / VT52-Identify auto-responder. |
+| `--ttype-claim NAME`       | Default terminal-type claim to hosts (`vt52`/`vt100`/`vt102`/`vt220`/`xterm`/`dumb`/`unknown`/`ansi`; default `vt100`). A non-empty Telenet `TERMINAL=` response overrides per-session. Drives both Telnet TTYPE subnegotiation and the inline DEC DA1 / VT52-Identify auto-responder. `dumb`/`unknown`/`ansi` advertise the name via TTYPE but **do not** auto-answer inline DA queries — useful when the upstream is a real terminal you want to let answer for itself, or when you want VMS-style hosts to fall back to their `UNKTERM` path. |
 
 Under `--emulate telenet`, the PAD also recognises these synonyms:
 `CONNECT`/`C` for CALL, `DISCONNECT`/`D` for CLR, `CONT`/`CONTINUE`

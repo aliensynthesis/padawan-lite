@@ -57,21 +57,34 @@ static const uint8 RESP_XTERM_DA1[] = { 0x1B, '[', '?', '1', ';', '2', 'c' };
    terminals (VT220 onward) don't respond to ESC Z. */
 static const uint8 RESP_VT52_ESCZ[] = { 0x1B, '/', 'Z' };
 
+/* The three "silent" entries (DUMB, UNKNOWN, ANSI) share the same
+   protocol behaviour: TTYPE-IS replies with the literal name, and
+   inline DA1 / VT52 Identify queries are swallowed but not answered.
+   They differ only in the TTYPE name the host receives, which lets
+   the operator pick the label most likely to match a sensible
+   fallback driver in the host's terminal table:
+     DUMB    - "treat me as a printer; no escape interpretation"
+     UNKNOWN - generic "I don't know what I am" placeholder
+     ANSI    - generic ANSI-compatible terminal (termcap "ansi"). */
 static const term_id_entry_t TABLE[] = {
-    { "VT52",  NULL,            0,
-                                  RESP_VT52_ESCZ, sizeof(RESP_VT52_ESCZ) },
-    { "VT100", RESP_VT100_DA1,  sizeof(RESP_VT100_DA1),
-                                  RESP_VT52_ESCZ, sizeof(RESP_VT52_ESCZ) },
-    { "VT102", RESP_VT102_DA1,  sizeof(RESP_VT102_DA1),
-                                  RESP_VT52_ESCZ, sizeof(RESP_VT52_ESCZ) },
-    { "VT220", RESP_VT220_DA1,  sizeof(RESP_VT220_DA1),
-                                  NULL,           0 },
-    { "XTERM", RESP_XTERM_DA1,  sizeof(RESP_XTERM_DA1),
-                                  NULL,           0 },
-    { "DUMB",  NULL,            0,
-                                  NULL,           0 },
-    { NULL,    NULL,            0,
-                                  NULL,           0 }
+    { "VT52",    NULL,            0,
+                                    RESP_VT52_ESCZ, sizeof(RESP_VT52_ESCZ) },
+    { "VT100",   RESP_VT100_DA1,  sizeof(RESP_VT100_DA1),
+                                    RESP_VT52_ESCZ, sizeof(RESP_VT52_ESCZ) },
+    { "VT102",   RESP_VT102_DA1,  sizeof(RESP_VT102_DA1),
+                                    RESP_VT52_ESCZ, sizeof(RESP_VT52_ESCZ) },
+    { "VT220",   RESP_VT220_DA1,  sizeof(RESP_VT220_DA1),
+                                    NULL,           0 },
+    { "XTERM",   RESP_XTERM_DA1,  sizeof(RESP_XTERM_DA1),
+                                    NULL,           0 },
+    { "DUMB",    NULL,            0,
+                                    NULL,           0 },
+    { "UNKNOWN", NULL,            0,
+                                    NULL,           0 },
+    { "ANSI",    NULL,            0,
+                                    NULL,           0 },
+    { NULL,      NULL,            0,
+                                    NULL,           0 }
 };
 
 static int eq_icase(const char *a, const char *b)

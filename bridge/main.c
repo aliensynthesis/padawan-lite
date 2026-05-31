@@ -922,10 +922,10 @@ static void usage(const char *argv0)
                                  " (default, telenet)\n");
     fprintf(stderr,
         "      --ttype-claim <name> default terminal-type claim"
-                                 " (vt52, vt100, vt102, vt220,\n"
-        "                           xterm, dumb; default: vt100)."
-                                 " A user response at the\n"
-        "                           Telenet TERMINAL= prompt"
+                                 " (vt52, vt100, vt102, vt220, xterm,\n"
+        "                           dumb, unknown, ansi; default: vt100)."
+                                 " A user response at\n"
+        "                           the Telenet TERMINAL= prompt"
                                  " overrides this per-session.\n"
         "  -h, --help               this help\n"
         "  Default: single session over stdin/stdout.\n");
@@ -1011,7 +1011,8 @@ int main(int argc, char **argv)
             if (x25_bridge_set_ttype_claim(argv[ai]) != 0) {
                 fprintf(stderr,
                         "unknown ttype-claim '%s' "
-                        "(try vt52, vt100, vt102, vt220, xterm, dumb)\n",
+                        "(try vt52, vt100, vt102, vt220, xterm, "
+                        "dumb, unknown, ansi)\n",
                         argv[ai]);
                 return 2;
             }

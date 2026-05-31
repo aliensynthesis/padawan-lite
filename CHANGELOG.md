@@ -4,6 +4,36 @@ All notable changes to Padawan-Lite are recorded here. The format
 follows [Keep a Changelog](https://keepachangelog.com/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.5.1] — 2026-05-31
+
+### Added
+
+- **`UNKNOWN` and `ANSI` aliases** in `bridge/term_id.c`'s name
+  table. Both behave the same way `DUMB` does at the protocol
+  level: TTYPE-IS replies with the literal name and inline DA1 /
+  VT52-Identify queries are swallowed without response. They
+  differ only in the TTYPE-IS name the host receives, which lets
+  the operator pick the label most likely to match a sensible
+  fallback driver in the host's terminal table:
+
+  | Name | TTYPE-IS reply | Typical host fallback |
+  | --- | --- | --- |
+  | `DUMB`    | `DUMB`    | line-printer behaviour |
+  | `UNKNOWN` | `UNKNOWN` | host's "unknown terminal" path (e.g. VMS `UNKTERM`) |
+  | `ANSI`    | `ANSI`    | termcap `ansi` entry where available |
+
+  The previously-shipped `VT52`, `VT100`, `VT102`, `VT220`,
+  `XTERM` entries are unchanged.
+
+### Verified
+
+- `tests/test_term_id` extended from 34 to 38 assertions covering
+  UNKNOWN/ANSI lookup (case-insensitive) and the inline-filter
+  swallow-but-don't-respond behaviour. All previous tests still
+  pass.
+
+[1.5.1]: https://example.invalid/padawan-lite/releases/tag/v1.5.1
+
 ## [1.5.0] — 2026-05-30
 
 ### Added

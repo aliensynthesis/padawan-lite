@@ -70,7 +70,11 @@ packet-switched era.
   `--ttype-claim NAME` sets the operator default; if the user
   responds to the Telenet `TERMINAL=` prompt with a non-empty
   type name, that wins per-session. Names: `vt52`, `vt100`,
-  `vt102`, `vt220`, `xterm`, `dumb`; default `vt100`. The same
+  `vt102`, `vt220`, `xterm`, `dumb`, `unknown`, `ansi`;
+  default `vt100`. The last three (`dumb`/`unknown`/`ansi`)
+  advertise the name via TTYPE but do not auto-answer inline DEC
+  ANSI DA1 / VT52-Identify queries — useful when an upstream real
+  terminal should answer for itself. The same
   identity drives both the Telnet TTYPE subneg response and the
   inline DA replies, so the host gets a single coherent answer.
 - **Pluggable transport.** Padawan-Lite talks to the network through
@@ -140,7 +144,7 @@ followed by `30001<CR>` (session-level NUI).
 | `--trace-line-mode`           | Consolidate CLIENT entries by CR (implies `--trace`)              |
 | `--pcp-port PORT`             | PAD Control Protocol listener on `127.0.0.1:PORT` (`0` = off)     |
 | `--emulate NAME`              | PAD personality: `default` (X.28), `telenet`                      |
-| `--ttype-claim NAME`          | Default terminal-type claim to hosts (`vt52`/`vt100`/`vt102`/`vt220`/`xterm`/`dumb`; default `vt100`) |
+| `--ttype-claim NAME`          | Default terminal-type claim to hosts (`vt52`/`vt100`/`vt102`/`vt220`/`xterm`/`dumb`/`unknown`/`ansi`; default `vt100`) |
 | `-h`, `--help`                | Show usage                                                        |
 
 See [`QUICKREF.md`](QUICKREF.md) for the full reference card —
