@@ -83,6 +83,18 @@ void x25_bridge_set_window_size(uint16 width, uint16 height);
    "vt100" fallback). */
 int x25_bridge_set_ttype_claim(const char *name);
 
+/* Set the term_id name the Telenet code "D1" resolves to. D1 is the
+   Sprint-era Telenet TERMINAL= code for the broad CRT / personal-
+   computer class, covering everything from DEC VT100/VT52 to Apple
+   II, Commodore PET, Atari 400/800, etc. The right canonical mapping
+   depends on the operator's setup: DEC-era VAX users want VT100;
+   8-bit-PC users probably want ANSI (X3.64); strict authenticity
+   might want DUMB. Accepts any term_id name (vt52, vt100, vt102,
+   vt220, xterm, dumb, unknown, ansi), case-insensitive. Empty / NULL
+   means "fall through to the built-in default VT100". Returns 0 on
+   success, -1 if the name is not in the term_id table. */
+int x25_bridge_set_d1_mapping(const char *name);
+
 /* --- multi-session helpers ------------------------------------------- */
 
 /* Return the socket fd of the active call bound to the given session,

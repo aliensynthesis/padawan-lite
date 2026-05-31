@@ -62,6 +62,27 @@ const term_id_entry_t *term_id_lookup(const char *name);
 /* Returns the default ("VT100") entry. Never NULL. */
 const term_id_entry_t *term_id_default(void);
 
+/* Sprint-era Telenet TERMINAL= codes (D1, A1..A9, B1/B3/B4/B5) map
+   to canonical term_id names per the "TELENET TERMINAL IDENTIFIERS"
+   user documentation (1980s, undated). Source list and the rest of
+   the mapping table are documented in deviations.txt [2026-05-31].
+
+   When `name` is one of the recognised codes, the function returns
+   the canonical name it resolves to (suitable for term_id_lookup).
+   When `name` is not a Telenet code, it is returned verbatim so this
+   is safe to use as a pre-pass for any operator- or user-supplied
+   name.
+
+   `d1_override` is the operator's --d1 setting (or NULL / "" for
+   the default mapping VT100). The 8-bit personal-computer class
+   covered by D1 didn't natively support VT100; this hook lets the
+   operator point D1 at ANSI X3.64, DUMB, or any other term_id
+   entry instead. The A-class and B-class codes always resolve to
+   DUMB regardless of d1_override (those are hardcopy / teletype-
+   class terminals, not ambiguous). */
+const char *term_id_resolve_telenet_code(const char *name,
+                                         const char *d1_override);
+
 /* --- Inline DA-query interceptor ------------------------------------ */
 
 /* Watches a host->user byte stream for the two ANSI device-identity

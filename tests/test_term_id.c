@@ -61,9 +61,20 @@ int main(void)
           e->da1_response == NULL && e->escz_response == NULL,
           "lookup-UNKNOWN: name found, both responses NULL");
     e = term_id_lookup("ansi");
+    /* ANSI now mirrors VT100's DA1 (v1.5.6) so an --d1 ansi
+       mapping doesn't trigger UNKTERM on the host side. ESC Z
+       reply also present for symmetry with the VT-class entries. */
     CHECK(e != NULL && strcmp(e->name, "ANSI") == 0 &&
-          e->da1_response == NULL && e->escz_response == NULL,
-          "lookup-ansi (lc): resolves to ANSI, both responses NULL");
+          e->da1_response != NULL && e->escz_response != NULL,
+          "lookup-ansi (lc): resolves to ANSI, has DA1 + ESC Z responses");
+    {
+        static const uint8 expected_vt100_da1[] =
+            { 0x1B, '[', '?', '1', ';', '0', 'c' };
+        CHECK(e->da1_len == sizeof(expected_vt100_da1) &&
+              memcmp(e->da1_response, expected_vt100_da1,
+                     sizeof(expected_vt100_da1)) == 0,
+              "ansi-da1: ANSI's DA1 equals VT100's (ESC [ ? 1 ; 0 c)");
+    }
     e = term_id_lookup("BOGUS");
     CHECK(e == NULL, "lookup-unknown: returns NULL");
     e = term_id_lookup("");
@@ -204,12 +215,10 @@ int main(void)
                   "filter-9b: DUMB emits no response (host falls back)");
         }
 
-        /* 9c-9d. UNKNOWN and ANSI behave the same as DUMB at filter level
-           (both have NULL DA1/ESC Z); the difference is in the TTYPE-IS
-           name reported via subneg, not in inline DA handling. */
+        /* 9c. UNKNOWN behaves like DUMB at the filter level (NULL
+           DA1/ESC Z); the difference is in the TTYPE-IS name only. */
         {
             const term_id_entry_t *unknown = term_id_lookup("UNKNOWN");
-            const term_id_entry_t *ansi    = term_id_lookup("ANSI");
             static const uint8 in[] = { 0x1B, '[', 'c' };
 
             term_id_filter_init(&t);
@@ -217,12 +226,25 @@ int main(void)
                                        out, resp, sizeof(resp), &resp_len);
             CHECK(n == 0 && resp_len == 0,
                   "filter-9c: UNKNOWN swallows DA query, no response");
+        }
+
+        /* 9d. ANSI: since v1.5.6 ANSI mirrors VT100's DA1 reply so
+           an `--d1 ansi` mapping lands the host on a real ANSI driver
+           instead of UNKTERM. The filter both swallows the query AND
+           emits the VT100-shaped DA1 response. */
+        {
+            const term_id_entry_t *ansi = term_id_lookup("ANSI");
+            static const uint8 in[] = { 0x1B, '[', 'c' };
+            static const uint8 expected[] =
+                { 0x1B, '[', '?', '1', ';', '0', 'c' };
 
             term_id_filter_init(&t);
             n = term_id_filter_process(&t, ansi, in, sizeof(in),
                                        out, resp, sizeof(resp), &resp_len);
-            CHECK(n == 0 && resp_len == 0,
-                  "filter-9d: ANSI swallows DA query, no response");
+            CHECK(n == 0,
+                  "filter-9d: ANSI swallows the DA query");
+            CHECK(bytes_eq(resp, resp_len, expected, sizeof(expected)),
+                  "filter-9e: ANSI emits VT100-style DA1 response");
         }
 
         /* 10. CSI overflow: 12 parameter bytes ESC[1;2;3;4;5;6m. */
@@ -290,6 +312,69 @@ int main(void)
             CHECK(bytes_eq(resp, resp_len, expected, sizeof(expected)),
                   "filter-13: NULL id falls back to VT100 default");
         }
+    }
+
+    /* === (C) Telenet code resolver (v1.5.6) ==================== */
+    {
+        const char *r;
+
+        /* D1 with no override resolves to VT100. */
+        r = term_id_resolve_telenet_code("D1", NULL);
+        CHECK(r != NULL && strcmp(r, "VT100") == 0,
+              "telenet-D1 (no override): -> VT100");
+        r = term_id_resolve_telenet_code("D1", "");
+        CHECK(r != NULL && strcmp(r, "VT100") == 0,
+              "telenet-D1 (empty override): -> VT100");
+        r = term_id_resolve_telenet_code("d1", NULL);  /* case-insensitive */
+        CHECK(r != NULL && strcmp(r, "VT100") == 0,
+              "telenet-d1 (lc, no override): -> VT100");
+
+        /* D1 with an override returns the override (operator's choice). */
+        r = term_id_resolve_telenet_code("D1", "ANSI");
+        CHECK(r != NULL && strcmp(r, "ANSI") == 0,
+              "telenet-D1 (override ANSI): -> ANSI");
+        r = term_id_resolve_telenet_code("D1", "DUMB");
+        CHECK(r != NULL && strcmp(r, "DUMB") == 0,
+              "telenet-D1 (override DUMB): -> DUMB");
+
+        /* A-class and B-class codes always resolve to DUMB, ignoring
+           the d1_override (those are hardcopy/teletype-class). */
+        r = term_id_resolve_telenet_code("A1", NULL);
+        CHECK(r != NULL && strcmp(r, "DUMB") == 0,
+              "telenet-A1: -> DUMB");
+        r = term_id_resolve_telenet_code("A9", "ANSI"); /* override ignored */
+        CHECK(r != NULL && strcmp(r, "DUMB") == 0,
+              "telenet-A9 (override ANSI): -> DUMB (A-class is unambiguous)");
+        r = term_id_resolve_telenet_code("B3", NULL);
+        CHECK(r != NULL && strcmp(r, "DUMB") == 0,
+              "telenet-B3: -> DUMB");
+        r = term_id_resolve_telenet_code("b5", NULL);
+        CHECK(r != NULL && strcmp(r, "DUMB") == 0,
+              "telenet-b5 (lc): -> DUMB");
+
+        /* Names that aren't Telenet codes pass through verbatim. */
+        r = term_id_resolve_telenet_code("VT100", NULL);
+        CHECK(r != NULL && strcmp(r, "VT100") == 0,
+              "telenet-VT100 (not a code): pass through");
+        r = term_id_resolve_telenet_code("XTERM", "ANSI");
+        CHECK(r != NULL && strcmp(r, "XTERM") == 0,
+              "telenet-XTERM (not a code, override irrelevant): pass through");
+
+        /* Two-char strings that LOOK like Telenet codes but use a
+           digit outside 1-9, or a wrong prefix letter, fall through. */
+        r = term_id_resolve_telenet_code("A0", NULL);
+        CHECK(r != NULL && strcmp(r, "A0") == 0,
+              "telenet-A0 (digit out of range): pass through");
+        r = term_id_resolve_telenet_code("C1", NULL);
+        CHECK(r != NULL && strcmp(r, "C1") == 0,
+              "telenet-C1 (wrong class letter): pass through");
+        r = term_id_resolve_telenet_code("D2", NULL);
+        CHECK(r != NULL && strcmp(r, "D2") == 0,
+              "telenet-D2 (only D1 is recognised): pass through");
+
+        /* NULL input -> NULL output. */
+        CHECK(term_id_resolve_telenet_code(NULL, NULL) == NULL,
+              "telenet-NULL: returns NULL");
     }
 
     if (g_fail) {

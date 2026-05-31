@@ -57,15 +57,19 @@ static const uint8 RESP_XTERM_DA1[] = { 0x1B, '[', '?', '1', ';', '2', 'c' };
    terminals (VT220 onward) don't respond to ESC Z. */
 static const uint8 RESP_VT52_ESCZ[] = { 0x1B, '/', 'Z' };
 
-/* The three "silent" entries (DUMB, UNKNOWN, ANSI) share the same
-   protocol behaviour: TTYPE-IS replies with the literal name, and
-   inline DA1 / VT52 Identify queries are swallowed but not answered.
-   They differ only in the TTYPE name the host receives, which lets
-   the operator pick the label most likely to match a sensible
-   fallback driver in the host's terminal table:
+/* The two "silent" entries (DUMB, UNKNOWN) share the same protocol
+   behaviour: TTYPE-IS replies with the literal name, and inline DA1
+   / VT52 Identify queries are swallowed but not answered:
      DUMB    - "treat me as a printer; no escape interpretation"
      UNKNOWN - generic "I don't know what I am" placeholder
-     ANSI    - generic ANSI-compatible terminal (termcap "ansi"). */
+
+   ANSI is a generic ANSI X3.64 / ECMA-48 terminal. It reuses VT100's
+   DA1 reply (ESC [ ? 1 ; 0 c) because that is what real ANSI X3.64
+   terminals historically returned (the parameter form has no
+   "vanilla ANSI" interpretation distinct from VT100 in practice) and
+   it's the most widely-recognised reply by hosts. This entry exists
+   so a v1.5.6 `--d1 ansi` mapping can land a non-DEC personal
+   computer on a terminal driver without triggering UNKTERM. */
 static const term_id_entry_t TABLE[] = {
     { "VT52",    NULL,            0,
                                     RESP_VT52_ESCZ, sizeof(RESP_VT52_ESCZ) },
@@ -81,8 +85,8 @@ static const term_id_entry_t TABLE[] = {
                                     NULL,           0 },
     { "UNKNOWN", NULL,            0,
                                     NULL,           0 },
-    { "ANSI",    NULL,            0,
-                                    NULL,           0 },
+    { "ANSI",    RESP_VT100_DA1,  sizeof(RESP_VT100_DA1),
+                                    RESP_VT52_ESCZ, sizeof(RESP_VT52_ESCZ) },
     { NULL,      NULL,            0,
                                     NULL,           0 }
 };
@@ -114,6 +118,38 @@ const term_id_entry_t *term_id_lookup(const char *name)
 const term_id_entry_t *term_id_default(void)
 {
     return term_id_lookup("VT100");
+}
+
+const char *term_id_resolve_telenet_code(const char *name,
+                                         const char *d1_override)
+{
+    if (name == NULL) return NULL;
+
+    /* "D1" -- the broad CRT / personal-computer class. The doc lists
+       DEC VT100/VT52 alongside Apple II, Atari, Commodore PET, TRS-80,
+       Hazeltine, HP 2640, IBM 3101, Datapoint, etc. The right
+       canonical mapping depends on the operator's setup: DEC VAX
+       users want VT100; 8-bit-PC users probably want ANSI (X3.64);
+       strict authenticity might want DUMB. */
+    if ((name[0] == 'D' || name[0] == 'd') &&
+        name[1] == '1' && name[2] == '\0') {
+        if (d1_override != NULL && d1_override[0] != '\0') {
+            return d1_override;
+        }
+        return "VT100";
+    }
+
+    /* "A1".."A9" and "B1"/"B3"/"B4"/"B5" -- printer / teletype /
+       hardcopy class (TI 725/733/735, AJ 630/830/860, Diablo Hyterm,
+       Univac DCT 500, Xerox 1700, ...). No escape interpretation,
+       no DA1 response wanted. */
+    if ((name[0] == 'A' || name[0] == 'a' ||
+         name[0] == 'B' || name[0] == 'b') &&
+        name[1] >= '1' && name[1] <= '9' && name[2] == '\0') {
+        return "DUMB";
+    }
+
+    return name;
 }
 
 /* --- inline DA-query interceptor implementation --------------------- */

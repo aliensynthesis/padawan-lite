@@ -926,7 +926,14 @@ static void usage(const char *argv0)
         "                           dumb, unknown, ansi; default: vt100)."
                                  " A user response at\n"
         "                           the Telenet TERMINAL= prompt"
-                                 " overrides this per-session.\n"
+                                 " overrides this per-session.\n");
+    fprintf(stderr,
+        "      --d1 <name>          term_id the Sprint-era Telenet"
+                                 " code 'D1' resolves to (same\n"
+        "                           name set as --ttype-claim;"
+                                 " default vt100). Useful when\n"
+        "                           the operator-side terminals"
+                                 " are 8-bit PCs running ANSI X3.64.\n"
         "  -h, --help               this help\n"
         "  Default: single session over stdin/stdout.\n");
 }
@@ -1011,6 +1018,16 @@ int main(int argc, char **argv)
             if (x25_bridge_set_ttype_claim(argv[ai]) != 0) {
                 fprintf(stderr,
                         "unknown ttype-claim '%s' "
+                        "(try vt52, vt100, vt102, vt220, xterm, "
+                        "dumb, unknown, ansi)\n",
+                        argv[ai]);
+                return 2;
+            }
+        } else if (strcmp(argv[ai], "--d1") == 0) {
+            if (++ai >= argc) { usage(argv[0]); return 2; }
+            if (x25_bridge_set_d1_mapping(argv[ai]) != 0) {
+                fprintf(stderr,
+                        "unknown --d1 mapping '%s' "
                         "(try vt52, vt100, vt102, vt220, xterm, "
                         "dumb, unknown, ansi)\n",
                         argv[ai]);

@@ -161,6 +161,30 @@ NETLINK's parameter stream) is **not modelled**. Padawan-Lite's
 X.3 only handles the basic 1–22 + extended 23–30 namespace
 defined by ITU-T.
 
+### Recognised `TERMINAL=` codes (Sprint-era Telenet)
+
+The Telenet PAD asks for the user's terminal at the `TERMINAL=`
+prompt using a 2-character code rather than a literal terminal
+name. Sprint-era "TELENET TERMINAL IDENTIFIERS" documentation
+catalogued the codes; padawan-lite recognises the following set
+and maps each to a canonical `term_id` entry before resolving
+the TTYPE / DA1 / VT52-Identify responses. Codes are
+case-insensitive. Unrecognised values fall through to whatever
+the operator-side `--ttype-claim` is.
+
+| Code | Resolves to | Notes |
+| --- | --- | --- |
+| `D1` | `--d1` value (default `VT100`) | Broad class — DEC VT100/VT52 alongside Apple II, Atari 400/800, Commodore PET, TRS-80, Hazeltine, HP 2640, IBM 3101, Datapoint, etc. The 8-bit PCs in this list weren't natively VT100 (more like ANSI X3.64), so the operator can switch the resolution via `--d1 ansi` / `--d1 dumb` / etc. |
+| `A1`–`A9` | `DUMB` | Teletype / hardcopy / early-portable class (Teletype 33/35, TI 725/733/735, DEC LA35/LA36/LA120, Execuport series, etc.). No escape interpretation expected. |
+| `B1`, `B3`, `B4`, `B5` | `DUMB` | Letter-quality / impact printers and specific machines (Diablo Hyterm, AJ 630/830/860, Univac DCT 500, Xerox 1700). |
+
+Codes listed in the source documentation **without a class
+identifier** (Infoton, Intecolor, Intertube II, Lanier WP, LSI
+ADM, Lexitron) are not recognised — the documentation itself
+acknowledges they weren't assigned a code in the Telenet
+namespace. If you encounter one in a capture, file an issue with
+the trace.
+
 ### Pseudo-parameter IDs accepted (silent no-op)
 
 Beyond the standard X.3 range, the Telenet personality accepts

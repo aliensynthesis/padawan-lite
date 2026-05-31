@@ -129,6 +129,11 @@ static uint16 g_default_naws_height = 24;
 #define BRIDGE_TTYPE_MAX 31
 static char g_ttype_claim_default[BRIDGE_TTYPE_MAX + 1] = "";
 
+/* Operator-set resolution for the Sprint-era Telenet "D1" terminal
+   code (--d1 NAME). When empty, the default "VT100" is used. See
+   resolve_telenet_term_code() and x25_bridge_set_d1_mapping. */
+static char g_telenet_d1[BRIDGE_TTYPE_MAX + 1] = "";
+
 /* --- address map (process-global) ------------------------------------- */
 
 #define BRIDGE_MAP_MAX     32
@@ -323,19 +328,26 @@ static void send_terminal_type(bridge_call_t *s);
      2. Operator default: --ttype-claim NAME set via
         x25_bridge_set_ttype_claim().
      3. Built-in: term_id_default() (VT100).
-   Always returns a non-NULL entry. If the user's TERMINAL= response
-   names a terminal the table doesn't know, falls through as if it
-   were absent -- safer than claiming bytes we can't produce. */
+   Each candidate name passes through resolve_telenet_term_code() so
+   Sprint-era Telenet codes (D1, A1..A9, B1/B3/B4/B5) land on the
+   right term_id entry.
+   Always returns a non-NULL entry. If the resolved name still names
+   a terminal the table doesn't know, falls through as if it were
+   absent -- safer than claiming bytes we can't produce. */
 static const term_id_entry_t *effective_term_id(const bridge_call_t *s)
 {
     const term_id_entry_t *e;
     if (s != NULL && s->session != NULL &&
         s->session->terminal_type[0] != '\0') {
-        e = term_id_lookup(s->session->terminal_type);
+        e = term_id_lookup(
+                term_id_resolve_telenet_code(
+                    s->session->terminal_type, g_telenet_d1));
         if (e != NULL) return e;
     }
     if (g_ttype_claim_default[0] != '\0') {
-        e = term_id_lookup(g_ttype_claim_default);
+        e = term_id_lookup(
+                term_id_resolve_telenet_code(
+                    g_ttype_claim_default, g_telenet_d1));
         if (e != NULL) return e;
     }
     return term_id_default();
@@ -353,6 +365,21 @@ int x25_bridge_set_ttype_claim(const char *name)
     if (n > BRIDGE_TTYPE_MAX) n = BRIDGE_TTYPE_MAX;
     memcpy(g_ttype_claim_default, name, n);
     g_ttype_claim_default[n] = '\0';
+    return 0;
+}
+
+int x25_bridge_set_d1_mapping(const char *name)
+{
+    size_t n;
+    if (name == NULL || *name == '\0') {
+        g_telenet_d1[0] = '\0';
+        return 0;
+    }
+    if (term_id_lookup(name) == NULL) return -1;
+    n = strlen(name);
+    if (n > BRIDGE_TTYPE_MAX) n = BRIDGE_TTYPE_MAX;
+    memcpy(g_telenet_d1, name, n);
+    g_telenet_d1[n] = '\0';
     return 0;
 }
 

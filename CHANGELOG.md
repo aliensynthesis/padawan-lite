@@ -4,6 +4,64 @@ All notable changes to Padawan-Lite are recorded here. The format
 follows [Keep a Changelog](https://keepachangelog.com/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.5.6] — 2026-05-31
+
+### Added
+
+- **Sprint-era Telenet `TERMINAL=` code recognition.** The
+  Telenet PAD's `TERMINAL=` prompt accepts 2-character codes
+  rather than literal terminal names ("D1" for the
+  CRT / personal-computer class, "A1"–"A9" for teletypes,
+  "B1"/"B3"/"B4"/"B5" for printers and specific machines).
+  Padawan-lite now resolves these codes to canonical `term_id`
+  entries before looking up TTYPE / DA1 / VT52-Identify
+  responses. See `QUICKREF_TELENET.md` "Recognised TERMINAL=
+  codes" section and `deviations.txt` [2026-05-31].
+
+- **`--d1 NAME` CLI flag.** Controls what the Telenet `D1` code
+  resolves to (same name set as `--ttype-claim`; default
+  `vt100`). `D1` covered everything from DEC VT100 to Apple II /
+  Commodore PET / Atari in the source documentation; the 8-bit
+  PCs in that list weren't natively VT100 (more like ANSI X3.64
+  in capability). The operator picks the resolution that
+  matches their actual terminal pool.
+
+  A-class and B-class codes always resolve to `DUMB` and are
+  **not** switchable — they're unambiguously hardcopy /
+  teletype-class.
+
+### Changed
+
+- **The `ANSI` term_id entry now answers DA1 / ESC Z queries.**
+  Previously a silent no-op (NULL responses), it now mirrors
+  VT100's DA1 (`ESC [ ? 1 ; 0 c`) and the VT52 Identify reply
+  (`ESC / Z`). Necessary so that `--d1 ansi` doesn't trigger
+  `UNKTERM` on hosts that auto-detect via inline ANSI queries.
+  Historically real ANSI X3.64 terminals returned the same DA1
+  reply as VT100; the parameter form has no "vanilla ANSI"
+  interpretation distinct from VT100 in practice.
+
+### Verified
+
+- `tests/test_term_id` extended by 21 assertions:
+  - The `ANSI` entry has VT100-shaped DA1 + ESC Z responses
+    (previously NULL).
+  - `term_id_resolve_telenet_code()` covers the full mapping
+    grammar: D1 with and without operator override (NULL,
+    empty string, "ANSI", "DUMB"); D1 case-insensitivity;
+    A1–A9 and B1/B3/B4/B5 always resolving to DUMB (override
+    ignored); names that aren't Telenet codes passing through
+    verbatim; near-miss false codes (A0, C1, D2) passing
+    through; NULL input → NULL output.
+  - Filter-level: ANSI now swallows the DA query AND emits the
+    VT100-style DA1 reply.
+- Full suite green across 8 binaries (886 → 907 assertions).
+- Smoke: `./padawan-lite --d1 bogus` rejected with the help
+  text listing valid names; `--d1 ansi --help` accepted and
+  prints normal usage.
+
+[1.5.6]: https://example.invalid/padawan-lite/releases/tag/v1.5.6
+
 ## [1.5.5] — 2026-05-31
 
 ### Added

@@ -1060,3 +1060,62 @@ accepted as silent no-ops.
   dispatchers' switch on ref). The current treatment is
   "tolerant Telenet client" rather than "implements the real
   semantics."
+
+
+[2026-05-31] bridge/term_id.{h,c}, bridge/x25_telnet_bridge.{h,c},
+bridge/main.c - Sprint-era Telenet TERMINAL= code recognition.
+
+  Source: "TELENET TERMINAL IDENTIFIERS" documentation, undated
+  Sprint-era (post-1986 Sprint acquisition of Telenet). The doc
+  catalogues 2-character codes used at the Telenet PAD's
+  TERMINAL= prompt to identify the user's terminal class.
+
+  Implemented codes (case-insensitive):
+
+      D1               -> --d1 setting; default VT100. The doc
+                          itself observes "PERSONAL COMPUTERS
+                          USUALLY USE THE IDENTIFIER D1." Covers
+                          DEC VT100/VT52/WS78/WS200 alongside
+                          Apple II, Atari 400/800/800XL,
+                          Commodore PET, TRS-80, Hazeltine,
+                          HP 2640, IBM 3101, Datapoint, etc.
+                          The mapping is operator-configurable
+                          because the 8-bit PCs in that list
+                          weren't natively VT100 (more like
+                          ANSI X3.64 in capability).
+
+      A1..A9           -> DUMB. Teletype / hardcopy / portable
+                          class (Teletype 33/35/40, TI 725/733/
+                          735/820, DEC LA35/LA36/LA120, AJ 510,
+                          Execuport series, etc.). Fixed mapping
+                          -- not switchable -- because the class
+                          is unambiguous.
+
+      B1, B3, B4, B5   -> DUMB. Letter-quality / impact printers
+                          and specific machines (Diablo Hyterm,
+                          AJ 630/830/832/860, Univac DCT 500,
+                          Xerox 1700). Same rationale as A class.
+
+  Codes listed in the source documentation WITHOUT a class
+  identifier (Infoton, Intecolor, Intertube II, Lanier WP, LSI
+  ADM, Lexitron) are intentionally not implemented. The doc
+  itself acknowledges they weren't assigned a code in the
+  Telenet namespace.
+
+  Side change (also part of v1.5.6): the ANSI term_id entry's
+  DA1 response was changed from NULL (silent no-op) to mirror
+  VT100's `ESC [ ? 1 ; 0 c`. This is necessary so that the
+  `--d1 ansi` mapping doesn't trigger UNKTERM on the host side;
+  real ANSI X3.64 terminals returned the same DA1 reply as
+  VT100 in practice (the parameter form has no "vanilla ANSI"
+  interpretation distinct from VT100). ANSI's ESC Z reply was
+  also wired to `ESC / Z` for symmetry with the VT-class
+  entries.
+
+  Promotability: codes not currently mapped (e.g. if a future
+  source documents semantics for the dotted entries) can be
+  added to `term_id_resolve_telenet_code()`. Authoritative
+  Sprint-era Telenet documentation describing the original
+  intent behind each code's capabilities has not been located;
+  the current mapping is best-effort from the terminal model
+  names in the source.

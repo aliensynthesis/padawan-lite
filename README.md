@@ -145,6 +145,7 @@ followed by `30001<CR>` (session-level NUI).
 | `--pcp-port PORT`             | PAD Control Protocol listener on `127.0.0.1:PORT` (`0` = off)     |
 | `--emulate NAME`              | PAD personality: `default` (X.28), `telenet`                      |
 | `--ttype-claim NAME`          | Default terminal-type claim to hosts (`vt52`/`vt100`/`vt102`/`vt220`/`xterm`/`dumb`/`unknown`/`ansi`; default `vt100`) |
+| `--d1 NAME`                   | term_id the Sprint-era Telenet code `D1` resolves to (same name set as `--ttype-claim`; default `vt100`) |
 | `-h`, `--help`                | Show usage                                                        |
 
 See [`QUICKREF.md`](QUICKREF.md) for the full reference card —
