@@ -4,6 +4,47 @@ All notable changes to Padawan-Lite are recorded here. The format
 follows [Keep a Changelog](https://keepachangelog.com/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.5.3] — 2026-05-31
+
+### Changed (internal)
+
+- **`bridge/user_telnet.c` migrated to Telos** (phase 2 of the
+  migration plan from v1.5.2). The file is now a thin server-role
+  policy layer — `policy_us()` / `policy_him()`, NAWS subneg body
+  decoding, an event-to-out-buffer bridge for the existing
+  `user_telnet_filter()` API, and an output write-to-fd hook —
+  over a single embedded `telos_session_t`. The IAC parser,
+  Q-method state machine, NVT line-end normalisation, and
+  subnegotiation framing now all live in `telos/`.
+
+  Net change: `bridge/user_telnet.{c,h}` lost ~149 lines while
+  gaining functional surface (Telos handles all 256 options
+  now, not just the 32 we tracked before; all single-byte IAC
+  commands are parsed, not just dropped).
+
+  **No public API change.** `user_telnet_init()`,
+  `user_telnet_send_initial()`, `user_telnet_filter()`,
+  `user_telnet_get_naws()`, and `user_telnet_write()` all keep
+  their existing signatures. The previously-exported
+  `user_telnet_iac_t`, `user_telnet_q_t`, and `UT_OPT_TABLE`
+  symbols (which were de facto internal) are removed.
+
+  **No runtime behaviour change.** All 17 assertions in
+  `tests/test_user_telnet` (the regression contract for this
+  migration) still pass byte-for-byte. The full test suite —
+  870 assertions across 8 binaries — is green. The on-wire
+  initial cluster, Q-method loop-breaker, CR LF / CR NUL
+  normalisation, and TELOS_FLAG_NVT_LINE_ENDING gating are all
+  preserved.
+
+### Build
+
+- `BRIDGE_CFLAGS` gains `-Itelos/` so bridge sources can include
+  `telos.h`. `padawan-lite` and `tests/test_user_telnet` now link
+  `telos/telos.o`.
+
+[1.5.3]: https://example.invalid/padawan-lite/releases/tag/v1.5.3
+
 ## [1.5.2] — 2026-05-31
 
 ### Added

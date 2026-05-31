@@ -38,60 +38,38 @@
        clean).
      - Captures user-reported window size (NAWS SB) for later use.
 
-   This is conceptually parallel to the IAC code inside
-   x25_telnet_bridge.c, but the roles are reversed (we are server
-   here, client there) so the policies differ. The state machine
-   structure is the same; minor duplication accepted at v1.2. */
+   As of v1.5.3 the Telnet protocol surface is delegated to telos/
+   (the spec-rigid Telnet engine). This module is now a thin layer
+   that wires the server-side policy, captures NAWS dimensions
+   reported via SB, and bridges Telos's event/write callbacks to
+   the existing public API (in/out buffer + fd). */
 
 #ifndef PADAWAN_BRIDGE_USER_TELNET_H
 #define PADAWAN_BRIDGE_USER_TELNET_H
 
 #include "types.h"
-
-typedef enum {
-    UT_NORMAL = 0,
-    UT_AFTER_IAC,
-    UT_AFTER_VERB,
-    UT_IN_SB,
-    UT_IN_SB_AFTER_IAC
-} user_telnet_iac_t;
-
-/* RFC 1143 Q-method per-option agreement states. NO/YES are the
-   stable agreed states; WANTYES/WANTNO are the "request pending"
-   states between a WILL/DO and its DO/WILL acknowledgement. We
-   track WANTYES_OPPOSITE-style sub-states implicitly via Q_WANTNO
-   because padawan-lite never reverses its mind mid-negotiation. */
-typedef enum {
-    Q_NO       = 0,
-    Q_YES      = 1,
-    Q_WANTYES  = 2,
-    Q_WANTNO   = 3
-} user_telnet_q_t;
-
-/* Option index range we maintain Q-state for: options 0..31. This
-   covers BINARY (0), ECHO (1), SGA (3), TTYPE (24), NAWS (31).
-   Requests for options outside this range get a stateless refusal
-   (DONT/WONT) to keep memory bounded. */
-#define UT_OPT_TABLE 32
+#include "telos.h"
 
 typedef struct {
     int               fd;
-    user_telnet_iac_t state;
-    uint8             verb;
-    uint8             sb_option;
-    uint8             sb_buf[8];
-    uint8             sb_len;
+
+    /* NAWS dimensions captured from a peer SB block. */
     int               has_naws;
     uint16            naws_width;
     uint16            naws_height;
-    user_telnet_q_t   us[UT_OPT_TABLE];   /* per-option: are WE doing it? */
-    user_telnet_q_t   him[UT_OPT_TABLE];  /* per-option: is PEER doing it? */
-    /* RFC 854 line-ending normalisation state. Set when the most
-       recent emitted data byte was CR; on the next byte, an LF or
-       NUL is recognised as the CR LF / CR NUL sequence and dropped
-       so the PAD core sees a bare CR (X.28 §3.5.1 command
-       delimiter is CR alone). Carries across read() boundaries. */
-    int               last_was_cr;
+
+    /* Embedded Telnet protocol engine. All IAC parsing, Q-method
+       state, NVT line-end normalisation and subnegotiation framing
+       live here. See telos/telos.h. */
+    telos_session_t   telos;
+
+    /* Transient state used to bridge Telos's event-driven data
+       delivery to user_telnet_filter()'s caller-provided out buffer.
+       Valid only inside user_telnet_filter(); zeroed before and
+       after each call. */
+    uint8            *filter_out_buf;
+    uint32            filter_out_len;
+    uint32            filter_out_cap;
 } user_telnet_t;
 
 /* Reset state and remember the user socket fd. */

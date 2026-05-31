@@ -64,7 +64,7 @@ BRIDGE_LIB_SRC    = $(BRIDGE_DIR)/x25_telnet_bridge.c \
                     $(BRIDGE_DIR)/term_id.c
 BRIDGE_LIB_OBJ    = $(BRIDGE_LIB_SRC:.c=.o)
 BRIDGE_MAIN_SRC   = $(BRIDGE_DIR)/main.c
-BRIDGE_CFLAGS     = $(CFLAGS) -I$(BRIDGE_DIR)
+BRIDGE_CFLAGS     = $(CFLAGS) -I$(BRIDGE_DIR) -I$(TELOS_DIR)
 
 # Telos - the spec-rigid Telnet protocol engine. Self-contained;
 # depends only on include/types.h. Not yet wired into the bridge;
@@ -88,8 +88,8 @@ $(LIB_NAME): $(LIB_OBJ)
 # padawan-lite = PAD library + telnet bridge + interactive driver.
 # Links libpadawancore.a as if it were an external consumer of the library
 # so the bridge directory remains extraction-ready.
-$(PADAWAN_BIN): $(BRIDGE_MAIN_SRC) $(BRIDGE_LIB_OBJ) $(LIB_NAME)
-	$(CC) $(BRIDGE_CFLAGS) -o $@ $(BRIDGE_MAIN_SRC) $(BRIDGE_LIB_OBJ) $(LIB_NAME)
+$(PADAWAN_BIN): $(BRIDGE_MAIN_SRC) $(BRIDGE_LIB_OBJ) $(TELOS_LIB_OBJ) $(LIB_NAME)
+	$(CC) $(BRIDGE_CFLAGS) -o $@ $(BRIDGE_MAIN_SRC) $(BRIDGE_LIB_OBJ) $(TELOS_LIB_OBJ) $(LIB_NAME)
 
 $(BRIDGE_DIR)/%.o: $(BRIDGE_DIR)/%.c
 	$(CC) $(BRIDGE_CFLAGS) -c -o $@ $<
@@ -108,8 +108,8 @@ test: $(TEST_BIN)
 # Bridge-side tests need access to bridge headers + the corresponding
 # bridge .o(s). More specific than the generic tests/test_% rule below,
 # so make picks this one for the named targets.
-tests/test_user_telnet: tests/test_user_telnet.c $(BRIDGE_DIR)/user_telnet.o
-	$(CC) $(BRIDGE_CFLAGS) -o $@ $< $(BRIDGE_DIR)/user_telnet.o
+tests/test_user_telnet: tests/test_user_telnet.c $(BRIDGE_DIR)/user_telnet.o $(TELOS_LIB_OBJ)
+	$(CC) $(BRIDGE_CFLAGS) -o $@ $< $(BRIDGE_DIR)/user_telnet.o $(TELOS_LIB_OBJ)
 
 tests/test_term_id: tests/test_term_id.c $(BRIDGE_DIR)/term_id.o
 	$(CC) $(BRIDGE_CFLAGS) -o $@ $< $(BRIDGE_DIR)/term_id.o
