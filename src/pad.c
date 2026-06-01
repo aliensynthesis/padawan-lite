@@ -584,6 +584,13 @@ static void dispatch_command(pad_session_t *p, const x28_command_t *cmd)
         } else {
             emit_ack(p);
         }
+        /* After the SET completes, check if the command matches a
+           client-fingerprint signature; on match the personality's
+           per-session overrides are applied to p->params. */
+        personality_apply_client_signature_overrides(p->personality,
+                                                     cmd->params,
+                                                     cmd->param_count,
+                                                     &p->params);
         break;
     }
 
@@ -610,6 +617,16 @@ static void dispatch_command(pad_session_t *p, const x28_command_t *cmd)
             }
         }
         emit_par_pairs(p, out, cmd->param_count);
+        /* Client-signature detection: matches the personality's known
+           client fingerprints and applies per-session X.3 overrides if
+           any. Runs after emit_par_pairs so the readback the client
+           sees reflects the pre-override state (the override is for
+           OUR PAD behaviour, not for what we tell the client about
+           its requested values). */
+        personality_apply_client_signature_overrides(p->personality,
+                                                     cmd->params,
+                                                     cmd->param_count,
+                                                     &p->params);
         break;
     }
 

@@ -4,6 +4,82 @@ All notable changes to Padawan-Lite are recorded here. The format
 follows [Keep a Changelog](https://keepachangelog.com/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.5.7] — 2026-06-01
+
+### Added
+
+- **Client-fingerprint detection mechanism** for per-session X.3
+  parameter overrides. Each `personality_t` can carry an array of
+  `client_signature_t` entries; each entry pairs a fingerprint (a
+  set of `(param, value)` tuples the client is known to send in
+  its opening X.28 SET / SET? command) with a corresponding set
+  of X.3 parameter overrides. On match the overrides are applied
+  to the SESSION's `x3_params_t` only — the personality's
+  `profile_overlay` stays NETLINK-faithful and other sessions are
+  unaffected. The detection runs at the end of `X28_CMD_SET` and
+  `X28_CMD_SET_READ` handlers in `src/pad.c`.
+
+- **Q-Link client signature** in the Telenet personality. The
+  QuantumLink (Q-Link) C64 dialer's distinctive
+  `SET? 10:0,15:0,0:33,57:1,63:0` prelude (already recognised in
+  v1.5.5 via the pseudo-param mechanism) is now ALSO used as a
+  fingerprint:
+
+  - **Fingerprint:** `{0:33, 57:1, 63:0}` — the three Telenet
+    pseudo-params with the values Q-Link sends. No standard
+    ASCII Telenet client would coincidentally touch all three.
+  - **Overrides (session-scoped):** `{1:0, 5:0, 12:0, 13:0}` —
+    disable DLE recall (Q-Link's binary protocol carries `$10`
+    as a payload byte; without this override the PAD's
+    `is_recall_char` check would bounce the session back to
+    command mode), disable PAD-to-DTE XOFF, disable DTE
+    X-ON/X-OFF flow control (PDU 3 bodies carry literal `$11`
+    DC1 bytes that would otherwise be eaten as flow signals),
+    and disable LF-after-CR insertion (dsc.prg's resident
+    kernel has zero LF-handling code).
+
+  Detection scope is per-session: when Q-Link's fingerprint
+  matches, only that session sees the four overrides; every
+  other Telenet client continues to use the NETLINK-faithful
+  defaults.
+
+### Changed
+
+- **Reverted two earlier ad-hoc personality-overlay edits** that
+  had been applied to make Q-Link work pre-v1.5.7:
+
+  - Telenet `profile_overlay[12]` (DTE X-ON/X-OFF flow control)
+    is back to NETLINK's `1` (was briefly forced to `0`).
+  - Telenet `profile_overlay[13]` (LF echo after CR) is back to
+    NETLINK's `4` (was briefly forced to `0`).
+
+  Both behaviours are now reached for Q-Link via the per-session
+  signature mechanism instead, so all other Telenet clients see
+  the original NETLINK defaults again.
+
+### Verified
+
+- `test_personality`, `test_pad`, `test_x28_signals`,
+  `test_x29_messages`, `test_x3`, `test_term_id`,
+  `test_user_telnet`, `test_telos` all still green.
+- Standalone signature-detection test (`/tmp/test_qlink_sig2.c`,
+  not committed): parses the literal Q-Link SET? string through
+  `x28_parse_command`, then invokes
+  `personality_apply_client_signature_overrides()` against a
+  fresh session loaded with PROFILE_D1 + Telenet overlay.
+  Confirms: signature matches, all four overrides apply, session
+  param values move from `{1=219, 5=1, 12=1, 13=4}` to
+  `{1=0, 5=0, 12=0, 13=0}`.
+- End-to-end: with a Q-Link C64 dialer (VICE) + tcpser + this
+  padawan-lite + qlinkmock chain, the Q-Link client reaches its
+  post-handshake "Welcome to Q-Link! Your account information is
+  being verified." screen — past the binary-protocol exchange
+  that pre-v1.5.7 broke at PDU 3 due to `$11` being eaten as
+  X-ON. Q-Link account-number frames now reach the host with
+  full byte transparency.
+
+[1.5.7]: https://example.invalid/padawan-lite/releases/tag/v1.5.7
+
 ## [1.5.6] — 2026-05-31
 
 ### Added

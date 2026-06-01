@@ -1119,3 +1119,155 @@ bridge/main.c - Sprint-era Telenet TERMINAL= code recognition.
   intent behind each code's capabilities has not been located;
   the current mapping is best-effort from the terminal model
   names in the source.
+
+
+[2026-06-01] src/personality.c - Telenet personality X.3 param 13
+              default changed from 4 to 0
+  X.3 parameter 13 (lf_insert) bit 2 = "LF echo to DTE": when the
+  DTE types a CR, the PAD echoes the CR and follows it with an LF.
+  v1.5.6 set the Telenet personality's profile-overlay value to 4
+  to match NETLINK's documented default. Investigation in qlinkmock
+  RE work (2026-06-01) showed:
+
+    - The Q-Link (QuantumLink) C64 dedicated client's resident
+      kernel dsc.prg has zero LF-byte handling code (no CMP #$0A,
+      no LDA #$0A, no filter). The session init reader at
+      dsc.prg:$A158 just consumes 13 modem bytes content-agnostic.
+    - The extra LF emitted by padawan-lite after the C64's CR
+      ending the X.28 CONN command was visible in tcpser traces
+      as a $0A byte sitting between the CR echo and the
+      destination's first byte. It broke byte alignment of the
+      C64-side bulk-upload protocol.
+    - The captured Q-Link SET? command (10:0, 15:0, 0:0, 57:0,
+      63:0) does NOT include param 13, meaning the client trusted
+      the PAD's default.
+
+  We have no positive evidence Q-Link expected an LF echo, and the
+  existing init reader's discard slots would absorb stray bytes by
+  accident rather than design. NETLINK's `4` was a sibling-network
+  choice, not a Q-Link / Telenet authoritative source.
+
+  Promotability: if authoritative Telenet user documentation
+  surfaces showing param 13 = 4 was Telenet's actual default,
+  revert this change and instead extend qlinkmock (or the
+  in-network application) to design around the LF byte. For now,
+  0 (no LF) is the conservative spec-compliant default that
+  matches the X.3 simple-profile default and breaks zero existing
+  qlinkmock or padawan-lite test scenarios.
+
+
+[2026-06-01] src/personality.c - Telenet personality X.3 param 12
+              default changed from 1 to 0
+  X.3 parameter 12 (flow control of PAD by start-stop DTE): value 1
+  enables DC1/DC3 (X-ON/X-OFF) from the DTE as flow-control signals
+  to the PAD. v1.5.6 set the Telenet personality's profile-overlay
+  value to 1 to match NETLINK's documented default. With this
+  setting, src/pad.c:1162-1184 consumes incoming $11 ($13) bytes as
+  XON (XOFF) signals and never forwards them to the X.25 host.
+
+  Investigation in qlinkmock RE work (2026-06-01) showed:
+
+    - Q-Link's PDU 3 wire frame is `5A F1 43 11 41 7F 7F 24 0D`.
+      The $11 byte is a payload byte (part of the encoded body
+      between the $5A start sentinel and the $7F 7F separator),
+      NOT flow control.
+    - With param 12 = 1, padawan-lite was silently dropping the
+      $11 from PDU 3 before forwarding to qlinkmock. The truncated
+      8-byte frame reaching qlinkmock had a different CRC than
+      the 9-byte frame the C64 sent, breaking PDU validation in
+      both directions.
+    - This also explains the long-standing "PDU 3 CRC anomaly"
+      tracked separately (qlinkmock task #83): the body bytes
+      WERE consistent with the $A001 CRC; we were just computing
+      against a stream missing a byte.
+    - The captured Q-Link SET? command (10:0, 15:0, 0:0, 57:0,
+      63:0) does NOT include param 12, meaning the client trusted
+      the PAD's default.
+
+  Q-Link / dsc.prg is a binary-transport client: the encoded body
+  format is a packed-nibble scheme over the full $00..$FF range,
+  including bytes that overlap with ASCII flow control. NETLINK's
+  flow-control model is an ASCII-terminal assumption that doesn't
+  apply to a binary client.
+
+  Promotability: if authoritative Telenet documentation surfaces
+  showing param 12 = 1 was Telenet's actual default and Q-Link
+  used some out-of-band mechanism to disable it (e.g., an X.29
+  control message or a custom subscriber-port profile), revert
+  this change. For now, 0 (transparent) is the conservative
+  default that matches the X.3 simple-profile default and unblocks
+  the only known Telenet-target client (Q-Link).
+
+  ★ SUPERSEDED 2026-06-01 (third pass): both the param 12 = 0
+  and param 13 = 0 personality-level changes have been REVERTED to
+  NETLINK-faithful values (12 = 1, 13 = 4). The QLink overrides
+  are now applied per-session via the client-fingerprint
+  mechanism described in the next entry. The original NETLINK
+  values are preserved for any other Telenet-targeted client.
+
+
+[2026-06-01] include/personality.h, src/personality.c, src/pad.c -
+              Client-fingerprint detection + per-session X.3 overrides
+  Replaces the personality-level X.3 param overrides used briefly
+  on 2026-06-01 (param 12 = 0, param 13 = 0) to accommodate the
+  QuantumLink C64 client. Those edits degraded the Telenet
+  personality's NETLINK fidelity for every other Telenet-targeted
+  user; the present mechanism scopes the QLink-specific behavior
+  to QLink sessions only.
+
+  Mechanism: each personality_t may carry an array of
+  client_signature_t entries. Each entry describes:
+    1) a fingerprint: a set of (X.3 param ID, value) pairs that
+       must all appear in the user's SET / SET? command;
+    2) a set of overrides: (X.3 param ID, value) pairs that the
+       PAD applies to the SESSION's x3_params_t via x3_set after
+       the SET command completes.
+  The personality's profile_overlay is NOT modified — overrides
+  are session-scoped. The dispatcher is in pad.c's X28_CMD_SET
+  and X28_CMD_SET_READ handlers, immediately after the user's
+  parameters are applied and the PAR response is emitted.
+
+  The Telenet personality declares ONE signature for the
+  QuantumLink C64 dialer (TELENET_CLIENT_SIGNATURES /
+  QLINK_SIG_PARAMS in src/personality.c):
+
+      Fingerprint:  {0:33, 57:1, 63:0}
+        — the three Telenet pseudo-params, set by Q-Link's
+          opening "SET? 10:0,15:0,0:33,57:1,63:0" command.
+          No standard ASCII Telenet client would coincidentally
+          touch all three of these specific pseudo-IDs with
+          these specific values. (NB: the PAR readback reports
+          pseudo-param values as 0 per silent-no-op convention;
+          the SET REQUEST values are what we match against.)
+
+      Overrides:    {1:0, 5:0, 12:0, 13:0}
+        - Param 1 = 0:  disable DLE recall character. Q-Link's
+                        binary protocol carries $10 as a payload
+                        byte (e.g. body[0] of the cmd-$24 success
+                        response). Without this override, pad.c's
+                        is_recall_char check would bounce the
+                        session back to PAD command mode.
+        - Param 5 = 0:  disable PAD->DTE XOFF generation.
+                        Defensive: Q-Link expects byte transparency
+                        in both directions during its binary phase.
+        - Param 12 = 0: transparent DTE flow control. Without this
+                        override the C64's $11 (DC1) bytes in
+                        PDU 3 bodies are eaten by pad.c:1162+ as
+                        X-ON.
+        - Param 13 = 0: no LF-after-CR insertion. The C64's
+                        resident kernel has zero LF handling code
+                        (no CMP #$0A in dsc.prg); an injected LF
+                        breaks the byte-stream alignment of the
+                        Q-Link binary protocol.
+
+  Standard X.28 doesn't define a client-fingerprint mechanism. We
+  invent one rather than degrade the Telenet personality's defaults
+  for non-QLink users. The mechanism is also extensible: future
+  PSPDN clients that send distinctive SET fingerprints can be
+  accommodated by adding entries to the personality's
+  client_signatures array.
+
+  Validation: the existing test_personality, test_pad,
+  test_x28_signals, test_x3 suites all continue to pass. A
+  dedicated test for the signature-detection path would be a
+  worthwhile follow-on.

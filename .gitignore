@@ -8,6 +8,11 @@ nuis.txt
 *.a
 /padawan-lite
 /tests/test_pad
+/tests/test_personality
 /tests/test_x28_signals
+/tests/test_user_telnet
 /tests/test_x29_messages
 /tests/test_x3
+
+# AI collaboration helpers (Python; not part of the shipped product)
+/tools/

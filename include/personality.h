@@ -58,6 +58,46 @@
    table is sized to this. */
 #define PERSONALITY_CLR_CAUSE_COUNT 15
 
+/* Client-fingerprint detection.
+
+   Some PSPDN clients identify themselves by sending a distinctive X.28
+   SET / SET? command at session start that touches a particular set of
+   parameters with particular values. A client_signature_t pairs that
+   fingerprint with a set of session-level X.3 parameter overrides the
+   PAD should apply WHEN (and only when) the fingerprint matches.
+
+   Rationale: Telenet PAD defaults (and the NETLINK overlay this
+   personality is built from) are tuned for ASCII terminal use. Some
+   clients run a binary protocol over the same PAD and need
+   transparency through bytes the standard PAD would intercept (DC1,
+   DC3, DLE recall, etc.). Rather than degrading the personality's
+   NETLINK fidelity for everyone, the PAD recognises the specific
+   client by its SET command and applies per-session overrides without
+   touching the personality's profile_overlay.
+
+   Match rule: ALL (signature_params[i], signature_values[i]) pairs
+   must be PRESENT in the command's param list (any order, additional
+   params allowed). The first signature that matches wins. */
+typedef struct {
+    /* Human-readable client name, used in logs. */
+    const char *client_name;
+
+    /* The fingerprint: parallel arrays of X.3 (or pseudo-) param IDs
+       and the expected values the client sets them to. signature_len
+       is the count of valid entries in each array. */
+    const uint8 *signature_params;
+    const uint8 *signature_values;
+    uint8        signature_len;
+
+    /* The session-level overrides applied on match: parallel arrays of
+       X.3 param IDs and the values to force into the session's
+       x3_params_t. Override entries whose param ID is outside
+       [X3_PAR_MIN..X3_PAR_MAX] are silently skipped (defensive). */
+    const uint8 *override_params;
+    const uint8 *override_values;
+    uint8        override_len;
+} client_signature_t;
+
 typedef struct personality {
     /* Lookup key for --emulate. ASCII, lowercase, no spaces. */
     const char *name;
@@ -210,6 +250,16 @@ typedef struct personality {
        configure any X.3 parameters; a future enhancement could map
        known terminal-type IDs to X.3 profiles. */
     const char *terminal_type_prompt;
+
+    /* Optional array of client-fingerprint entries. When the user
+       issues a SET / SET? command, the PAD scans this array for a
+       signature whose (param,value) pairs are all present in the
+       command. On match, the corresponding override pairs are applied
+       to the session's x3_params_t via x3_set. NULL or 0-count
+       disables client-fingerprint detection for this personality. See
+       client_signature_t above. */
+    const client_signature_t *client_signatures;
+    uint8                     client_signatures_count;
 } personality_t;
 
 /* "leave alone" sentinel for profile_overlay entries. Personality
@@ -227,5 +277,17 @@ const personality_t *personality_by_name(const char *name);
    read-only X3_PAR_SPEED. */
 void personality_apply_profile_overlay(const personality_t *pers,
                                        x3_params_t *params);
+
+/* Scan the personality's client_signatures for an entry whose
+   (param,value) pairs are all present in the supplied command params,
+   and on match apply that entry's overrides to params via x3_set.
+   Returns a pointer to the matched signature (for logging) or NULL if
+   no signature matched. Override entries with invalid X.3 ids are
+   skipped. */
+const client_signature_t *personality_apply_client_signature_overrides(
+    const personality_t *pers,
+    const x28_param_pair_t *cmd_params,
+    uint8 cmd_param_count,
+    x3_params_t *params);
 
 #endif

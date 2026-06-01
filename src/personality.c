@@ -80,7 +80,9 @@ static const personality_t PERSONALITY_DEFAULT = {
     0,              /* keep_command_mode_after_recall: X.28 one-shot */
     NULL,           /* extended_param_ids: strict X.28, no pseudos */
     0,              /* extended_param_count: 0 */
-    NULL            /* terminal_type_prompt: none */
+    NULL,           /* terminal_type_prompt: none */
+    NULL,           /* client_signatures: none */
+    0               /* client_signatures_count: 0 */
 };
 
 /* ------------------------------------------------------------------------- */
@@ -185,9 +187,23 @@ static const uint8 TELENET_PROFILE_OVERLAY[X3_PAR_MAX + 1] = {
     PERSONALITY_KEEP,             /* 10 fold (NETLINK: 0) */
     PERSONALITY_KEEP,             /* 11 speed (NETLINK: 3 = 1200 baud;
                                           read-only on PAD side, so KEEP) */
-    1,                            /* 12 DTE flow (NETLINK: 1) */
+    1,                            /* 12 DTE flow (NETLINK: 1).
+                                          Was briefly forced to 0 on 2026-06-01
+                                          to allow Q-Link's $11 byte to pass
+                                          DC1/DC3 flow control. Restored to
+                                          NETLINK's 1 on 2026-06-01 (third
+                                          pass) when the client-signature
+                                          mechanism made per-session
+                                          overrides possible — see
+                                          QLINK_CLIENT_SIGNATURE below. */
     4,                            /* 13 lf_insert: bit 2 = LF echo to DTE
-                                          (NETLINK: 4). Previously KEEP. */
+                                          (NETLINK: 4). Was briefly forced to
+                                          0 on 2026-06-01 to suppress LF
+                                          injection for Q-Link's byte-stream
+                                          protocol. Restored to NETLINK's 4
+                                          on 2026-06-01 (third pass) — Q-Link
+                                          gets a per-session override via
+                                          the client-signature mechanism. */
     PERSONALITY_KEEP,             /* 14 lf_pad (NETLINK: 0) */
     PERSONALITY_KEEP,             /* 15 edit (NETLINK: 0; editing engaged via
                                           param 19's service signals) */
@@ -253,6 +269,57 @@ static const uint8 TELENET_FULL_PAIRS[] = { 2, 1 }; /* SET 2:1  echo on  */
      entry [2026-05-31] for details. */
 static const uint8 TELENET_PSEUDO_PARAMS[] = { 0, 57, 63 };
 
+/* QuantumLink (Q-Link) C64 client signature.
+ *
+ * The C64 dialer's BASIC opens with a distinctive SET? command after
+ * the PAD's @ prompt:
+ *
+ *     SET? 10:0,15:0,0:33,57:1,63:0
+ *
+ * (Observed in tcpser captures 2026-06-01.) The pseudo-params
+ * 0/57/63 are unique to Telenet PAD's extension space and the
+ * combined fingerprint {0:33, 57:1, 63:0} is effectively a magic
+ * cookie — no plain ASCII Telenet client would coincidentally set
+ * those three values. NOTE: the PAR response readback reports
+ * 0/57/63 as value=0 (per silent-no-op convention for pseudo-
+ * params), but the REQUEST values are {33, 1, 0} — those are
+ * the values we match against in cmd->params[].
+ *
+ * The QLink binary protocol that runs after the SET command needs:
+ *   - Param 1  = 0 : disable DLE recall character. QLink frames carry
+ *                    $10 as a payload byte (e.g. the body[0] of the
+ *                    cmd-$24 success response). Without this override
+ *                    padawan-lite's pad.c is_recall_char() check
+ *                    bounces the session back to PAD command mode.
+ *   - Param 5  = 0 : disable PAD->DTE XOFF generation. Defensive:
+ *                    QLink doesn't expect any flow-control bytes
+ *                    interleaved with its binary stream.
+ *   - Param 12 = 0 : transparent DTE flow control. Without this
+ *                    override the C64's $11 (DC1) bytes in PDU 3
+ *                    bodies are eaten by pad.c:1162+ as X-ON.
+ *   - Param 13 = 0 : no LF-after-CR insertion. The C64's resident
+ *                    kernel has zero LF handling code (no CMP #$0A
+ *                    in dsc.prg); an injected LF breaks byte-stream
+ *                    alignment.
+ *
+ * These overrides are session-scoped — they touch only this session's
+ * x3_params_t, not the personality's profile_overlay, so all NETLINK-
+ * compatible defaults are preserved for other Telenet clients. */
+static const uint8 QLINK_SIG_PARAMS[]    = {  0, 57, 63 };
+static const uint8 QLINK_SIG_VALUES[]    = { 33,  1,  0 };
+static const uint8 QLINK_OVERRIDE_PARAMS[] = {  1,  5, 12, 13 };
+static const uint8 QLINK_OVERRIDE_VALUES[] = {  0,  0,  0,  0 };
+
+static const client_signature_t TELENET_CLIENT_SIGNATURES[] = {
+    {
+        "QuantumLink (Q-Link)",
+        QLINK_SIG_PARAMS, QLINK_SIG_VALUES,
+        (uint8)(sizeof(QLINK_SIG_PARAMS) / sizeof(QLINK_SIG_PARAMS[0])),
+        QLINK_OVERRIDE_PARAMS, QLINK_OVERRIDE_VALUES,
+        (uint8)(sizeof(QLINK_OVERRIDE_PARAMS) / sizeof(QLINK_OVERRIDE_PARAMS[0]))
+    }
+};
+
 static const x28_command_alias_t TELENET_ALIASES[] = {
     { "DISCONNECT", X28_CMD_CLR,       0, NULL,               0 },
     { "CONTINUE",   X28_CMD_CONTINUE,  0, NULL,               0 },
@@ -312,11 +379,15 @@ static const personality_t PERSONALITY_TELENET = {
     (uint8)(sizeof(TELENET_PSEUDO_PARAMS) /
              sizeof(TELENET_PSEUDO_PARAMS[0])),
                                        /* extended_param_count */
-    "TERMINAL="                        /* terminal_type_prompt per Telenet
+    "TERMINAL=",                       /* terminal_type_prompt per Telenet
                                           user doc; captured value stored
                                           in pad_session_t.terminal_type
                                           but not currently used to
                                           configure X.3 params */
+    TELENET_CLIENT_SIGNATURES,         /* client_signatures: QLink */
+    (uint8)(sizeof(TELENET_CLIENT_SIGNATURES) /
+             sizeof(TELENET_CLIENT_SIGNATURES[0]))
+                                       /* client_signatures_count */
 };
 
 /* Tymnet personality intentionally removed in v1.4.0.
@@ -364,4 +435,64 @@ void personality_apply_profile_overlay(const personality_t *pers,
             params->values[i] = v;
         }
     }
+}
+
+/* Returns 1 iff every (sig->signature_params[i], sig->signature_values[i])
+   pair appears in cmd_params[0..cmd_param_count-1]. Match is exact on
+   both ref and value; extra params in the command are ignored. */
+static int signature_matches(const client_signature_t *sig,
+                             const x28_param_pair_t *cmd_params,
+                             uint8 cmd_param_count)
+{
+    uint8 si;
+    uint8 ci;
+    int   found;
+
+    if (sig == NULL || cmd_params == NULL) return 0;
+    if (sig->signature_len == 0) return 0;
+    for (si = 0; si < sig->signature_len; si++) {
+        found = 0;
+        for (ci = 0; ci < cmd_param_count; ci++) {
+            if (cmd_params[ci].ref == sig->signature_params[si] &&
+                cmd_params[ci].value == sig->signature_values[si]) {
+                found = 1;
+                break;
+            }
+        }
+        if (!found) return 0;
+    }
+    return 1;
+}
+
+const client_signature_t *personality_apply_client_signature_overrides(
+    const personality_t *pers,
+    const x28_param_pair_t *cmd_params,
+    uint8 cmd_param_count,
+    x3_params_t *params)
+{
+    uint8 i;
+    uint8 j;
+    const client_signature_t *sig;
+
+    if (pers == NULL || pers->client_signatures == NULL ||
+        pers->client_signatures_count == 0 ||
+        cmd_params == NULL || params == NULL) {
+        return NULL;
+    }
+    for (i = 0; i < pers->client_signatures_count; i++) {
+        sig = &pers->client_signatures[i];
+        if (!signature_matches(sig, cmd_params, cmd_param_count)) continue;
+        /* Match. Apply this signature's overrides. */
+        for (j = 0; j < sig->override_len; j++) {
+            uint8 id  = sig->override_params[j];
+            uint8 val = sig->override_values[j];
+            if (id < X3_PAR_MIN || id > X3_PAR_MAX) continue;
+            if (id == X3_PAR_SPEED) continue;
+            if (x3_validate(id, val) == X3_OK) {
+                params->values[id] = val;
+            }
+        }
+        return sig;
+    }
+    return NULL;
 }
