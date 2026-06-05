@@ -291,6 +291,18 @@ static const uint8 TELENET_PSEUDO_PARAMS[] = { 0, 57, 63 };
  *                    cmd-$24 success response). Without this override
  *                    padawan-lite's pad.c is_recall_char() check
  *                    bounces the session back to PAD command mode.
+ *   - Param 2  = 0 : disable PAD->DTE echo. Q-Link is full-duplex
+ *                    binary; the C64 receive parser at $B877 treats
+ *                    echoed client bytes as if they came from the
+ *                    server, assembles them into "phantom frames"
+ *                    that pass the CRC + dispatch checks, and the
+ *                    cmd-$25/cmd-$20 success paths ($BB34 / $B91F)
+ *                    advance the client's $B993 seq counter via
+ *                    $BC54 for each one. Echoes therefore race the
+ *                    real server frames out of seq lockstep and the
+ *                    session never progresses past "being verified".
+ *                    Confirmed 2026-06-05 against the C64 client by
+ *                    VICE watchpoint on $B993 stores.
  *   - Param 5  = 0 : disable PAD->DTE XOFF generation. Defensive:
  *                    QLink doesn't expect any flow-control bytes
  *                    interleaved with its binary stream.
@@ -307,8 +319,8 @@ static const uint8 TELENET_PSEUDO_PARAMS[] = { 0, 57, 63 };
  * compatible defaults are preserved for other Telenet clients. */
 static const uint8 QLINK_SIG_PARAMS[]    = {  0, 57, 63 };
 static const uint8 QLINK_SIG_VALUES[]    = { 33,  1,  0 };
-static const uint8 QLINK_OVERRIDE_PARAMS[] = {  1,  5, 12, 13 };
-static const uint8 QLINK_OVERRIDE_VALUES[] = {  0,  0,  0,  0 };
+static const uint8 QLINK_OVERRIDE_PARAMS[] = {  1,  2,  5, 12, 13 };
+static const uint8 QLINK_OVERRIDE_VALUES[] = {  0,  0,  0,  0,  0 };
 
 static const client_signature_t TELENET_CLIENT_SIGNATURES[] = {
     {
