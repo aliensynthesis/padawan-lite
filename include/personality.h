@@ -96,6 +96,19 @@ typedef struct {
     const uint8 *override_params;
     const uint8 *override_values;
     uint8        override_len;
+
+    /* When non-zero, address-prefixed call signals (CONNECTED, CLR CONF,
+       and clear-indication) are emitted with an extra "CR LF" inserted
+       BEFORE the standard "CR LF <addr> SP <text> CR LF" framing,
+       yielding "CR LF CR LF <addr> SP <text> CR LF" on the wire. Used
+       to satisfy clients whose input parser counts CRs in a way that
+       requires two CRs at the start of the connect-acknowledgement
+       stream (notably the QuantumLink BASIC dialer in 0006.prg lines
+       9836-9850, which performs three sequential "read until CR"
+       passes and assumes the leading-CR pair is provided by some
+       combination of PAD-level echo + signal formatting). Default 0
+       leaves the X.28-standard single-CR-LF framing in place. */
+    uint8 extra_blank_line_on_call_signals;
 } client_signature_t;
 
 typedef struct personality {

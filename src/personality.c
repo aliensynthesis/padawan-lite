@@ -328,7 +328,23 @@ static const client_signature_t TELENET_CLIENT_SIGNATURES[] = {
         QLINK_SIG_PARAMS, QLINK_SIG_VALUES,
         (uint8)(sizeof(QLINK_SIG_PARAMS) / sizeof(QLINK_SIG_PARAMS[0])),
         QLINK_OVERRIDE_PARAMS, QLINK_OVERRIDE_VALUES,
-        (uint8)(sizeof(QLINK_OVERRIDE_PARAMS) / sizeof(QLINK_OVERRIDE_PARAMS[0]))
+        (uint8)(sizeof(QLINK_OVERRIDE_PARAMS) /
+                 sizeof(QLINK_OVERRIDE_PARAMS[0])),
+        /* extra_blank_line_on_call_signals: the QLink BASIC dialer in
+           0006.prg (lines 9836-9850) runs three sequential "read until
+           CR" passes against the post-CONNECT byte stream, then takes
+           RIGHT$(M$, 9) of the content captured between the 2nd and
+           3rd CR and compares it to "CONNECTED". For the comparison to
+           succeed, the stream must present TWO CRs at the start (so
+           the 2nd CR fires before any content is consumed), then the
+           "<addr> CONNECTED" text, then a trailing CR. With echo on,
+           the leading CR pair fell out for free (echoed CR + response
+           leading CR); with echo disabled per v1.5.8's Q-Link override,
+           the dialer would otherwise stall at line 9844. Setting this
+           flag inserts an extra CR LF at the start of address-prefixed
+           call signals, restoring the two-CR-prefix shape without
+           re-enabling echo. */
+        1
     }
 };
 

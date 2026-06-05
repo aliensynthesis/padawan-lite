@@ -233,6 +233,17 @@ typedef struct {
        NUI prompt, banner, and an optional X.3 profile overlay.
        See include/personality.h. */
     const struct personality *personality;
+
+    /* Mirror of the most recently matched client-signature's
+       extra_blank_line_on_call_signals flag (see
+       include/personality.h client_signature_t). When non-zero, the
+       PAD's address-prefixed signal emitter
+       (emit_signal_text_with_addr in src/pad.c) prepends an extra
+       CR LF to its output. Cleared by pad_init; set by the SET /
+       SET? dispatch path when a personality's client_signature
+       matches. Stays set for the rest of the session, since the
+       signature only fires once. */
+    uint8 sig_extra_blank_line_on_call_signals;
 } pad_session_t;
 
 /* Initialise a session: load profile_id into params, set state to PAD

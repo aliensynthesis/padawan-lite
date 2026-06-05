@@ -280,7 +280,14 @@ static void emit_signal_text(pad_session_t *p, const char *text)
    clear-indication signals where Telenet prepends the address
    ("<address> CONNECTED", "<address> DISCONNECTED"). When the
    personality doesn't opt in, or the address is empty, the output
-   is identical to emit_signal_text. */
+   is identical to emit_signal_text.
+
+   When the session's sig_extra_blank_line_on_call_signals flag is
+   set (via a matched client_signature_t), an additional "CR LF" is
+   inserted at the start, yielding "CR LF CR LF [<addr> SP] <text>
+   CR LF". This is used to satisfy clients (e.g. the QuantumLink
+   BASIC dialer) whose input parser expects two leading CRs before
+   the signal text. */
 static void emit_signal_text_with_addr(pad_session_t *p, const char *text)
 {
     uint8  buf[X28_MAX_ADDRESS_LEN + 128];
@@ -288,18 +295,28 @@ static void emit_signal_text_with_addr(pad_session_t *p, const char *text)
     uint32 alen = 0;
     uint32 tlen;
     int    prefix;
+    int    blank_prefix;
     if (text == NULL) return;
     prefix = (p->personality != NULL &&
               p->personality->prefix_called_address_on_call_signals &&
               p->called_address[0] != '\0');
+    blank_prefix = (p->sig_extra_blank_line_on_call_signals != 0);
     if (prefix) {
         alen = (uint32)strlen(p->called_address);
     }
     tlen = (uint32)strlen(text);
-    /* Cap the text so the worst-case "CR LF <addr> SP <text> CR LF"
-       still fits with NUL slack. */
-    if (alen + (prefix ? 1u : 0u) + tlen + 4 > sizeof(buf)) {
-        tlen = (uint32)sizeof(buf) - 4 - alen - (prefix ? 1u : 0u);
+    /* Cap the text so the worst-case
+       "[CR LF] CR LF <addr> SP <text> CR LF" still fits with NUL slack. */
+    {
+        uint32 fixed = 4u + (blank_prefix ? 2u : 0u)
+                          + (prefix ? 1u : 0u);
+        if (alen + fixed + tlen > sizeof(buf)) {
+            tlen = (uint32)sizeof(buf) - fixed - alen;
+        }
+    }
+    if (blank_prefix) {
+        buf[pos++] = IA5_CR;
+        buf[pos++] = IA5_LF;
     }
     buf[pos++] = IA5_CR;
     buf[pos++] = IA5_LF;
@@ -586,11 +603,19 @@ static void dispatch_command(pad_session_t *p, const x28_command_t *cmd)
         }
         /* After the SET completes, check if the command matches a
            client-fingerprint signature; on match the personality's
-           per-session overrides are applied to p->params. */
-        personality_apply_client_signature_overrides(p->personality,
-                                                     cmd->params,
-                                                     cmd->param_count,
-                                                     &p->params);
+           per-session overrides are applied to p->params and the
+           signature's call-signal formatting flag is copied to the
+           session for emit_signal_text_with_addr to honour. */
+        {
+            const client_signature_t *sig =
+                personality_apply_client_signature_overrides(
+                    p->personality, cmd->params, cmd->param_count,
+                    &p->params);
+            if (sig != NULL) {
+                p->sig_extra_blank_line_on_call_signals =
+                    sig->extra_blank_line_on_call_signals;
+            }
+        }
         break;
     }
 
@@ -622,11 +647,19 @@ static void dispatch_command(pad_session_t *p, const x28_command_t *cmd)
            any. Runs after emit_par_pairs so the readback the client
            sees reflects the pre-override state (the override is for
            OUR PAD behaviour, not for what we tell the client about
-           its requested values). */
-        personality_apply_client_signature_overrides(p->personality,
-                                                     cmd->params,
-                                                     cmd->param_count,
-                                                     &p->params);
+           its requested values). On match, also copy the signature's
+           call-signal formatting flag to the session for
+           emit_signal_text_with_addr to honour. */
+        {
+            const client_signature_t *sig =
+                personality_apply_client_signature_overrides(
+                    p->personality, cmd->params, cmd->param_count,
+                    &p->params);
+            if (sig != NULL) {
+                p->sig_extra_blank_line_on_call_signals =
+                    sig->extra_blank_line_on_call_signals;
+            }
+        }
         break;
     }
 
