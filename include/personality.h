@@ -273,6 +273,16 @@ typedef struct personality {
        client_signature_t above. */
     const client_signature_t *client_signatures;
     uint8                     client_signatures_count;
+
+    /* When non-zero, "older-style" GTE Telenet addresses -- those with NO
+       '.' separator, of the form <3-digit area-code><alphanumeric host-ID>
+       (e.g. "51852E") -- are rendered in address-prefixed call signals with
+       a space between the area-code and host-ID: "<area> <host> CONNECTED"
+       (e.g. "518 52E CONNECTED"). Discovered from the PlayNET client dialer
+       (BASIC program at $1301, line 164), which requires the EXACT response
+       " 518 52E CONNECTED". Addresses containing '.' (newer-style, e.g.
+       QuantumLink's "70339.87") are left ungrouped. Default 0. */
+    uint8 group_area_code_older_style;
 } personality_t;
 
 /* "leave alone" sentinel for profile_overlay entries. Personality

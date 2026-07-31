@@ -317,6 +317,21 @@ static int capture_address_and_cud(const char *s, uint32 i, uint32 len,
         if ((c == 'D' || c == 'P' || c == 'H') && j + 1 < rem) {
             cud_pos  = j;
             cud_type = (uint8)c;
+            addr_end = j;
+            break;
+        }
+        /* GTE Telenet "older-style" addresses carry an ALPHANUMERIC host-ID
+           (e.g. "51852E" = area-code 518 + host-ID 52E), so a letter that
+           follows the leading address characters belongs to the address, not
+           a terminator. Preserve such letters instead of truncating at the
+           first non-digit. Discovered from the PlayNET client, whose Telenet
+           NUA is "51852E". (Strict X.28 full addresses are digits only, but
+           GTE's front end accepted this.) The j>0 guard keeps a LEADING
+           letter a terminator, so a keyword crammed against no space
+           (e.g. "C12345") still yields an empty address, per X.28. */
+        if (j > 0 &&
+            ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'))) {
+            continue;
         }
         addr_end = j;
         break;

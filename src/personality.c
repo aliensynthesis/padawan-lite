@@ -82,7 +82,8 @@ static const personality_t PERSONALITY_DEFAULT = {
     0,              /* extended_param_count: 0 */
     NULL,           /* terminal_type_prompt: none */
     NULL,           /* client_signatures: none */
-    0               /* client_signatures_count: 0 */
+    0,              /* client_signatures_count: 0 */
+    0               /* group_area_code_older_style: off (strict X.28) */
 };
 
 /* ------------------------------------------------------------------------- */
@@ -414,8 +415,12 @@ static const personality_t PERSONALITY_TELENET = {
                                           configure X.3 params */
     TELENET_CLIENT_SIGNATURES,         /* client_signatures: QLink */
     (uint8)(sizeof(TELENET_CLIENT_SIGNATURES) /
-             sizeof(TELENET_CLIENT_SIGNATURES[0]))
+             sizeof(TELENET_CLIENT_SIGNATURES[0])),
                                        /* client_signatures_count */
+    1                                  /* group_area_code_older_style: GTE
+                                          older-style "<area> <host>" echo
+                                          -- PlayNET client requires
+                                          " 518 52E CONNECTED" */
 };
 
 /* Tymnet personality intentionally removed in v1.4.0.

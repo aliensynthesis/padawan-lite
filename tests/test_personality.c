@@ -449,14 +449,17 @@ static void test_default_personality_no_terminal_prompt(void)
 static void test_telenet_connected_includes_called_address(void)
 {
     /* Telenet emits "<address> CONNECTED" rather than the bare
-       "CONNECTED" text. Exact-byte assertion to catch a regression
-       where the address is dropped or the wrong word is used. */
+       "CONNECTED" text. The called address "30199" has no '.', so it
+       renders in the GTE "older-style" grouped form "301 99" (3-digit
+       area-code + host-ID; see group_area_code_older_style, discovered
+       from the PlayNET client). Exact-byte assertion to catch a
+       regression where the address is dropped or the wrong word used. */
     pad_session_t pad;
     reset_io();
     pad_init(&pad, X3_PROFILE_SIMPLE, cb_dte, cb_remote, NULL);
     pad_set_personality(&pad, personality_by_name("telenet"));
     pad_input_dte(&pad, (const uint8 *)"30199\r", 6);
-    ASSERT_TRUE(contains("30199 CONNECTED"));
+    ASSERT_TRUE(contains("301 99 CONNECTED"));
 }
 
 static void test_telenet_disconnect_emits_address_and_text(void)
@@ -475,11 +478,11 @@ static void test_telenet_disconnect_emits_address_and_text(void)
     pad_init(&pad, X3_PROFILE_SIMPLE, cb_dte, cb_remote, NULL);
     pad_set_personality(&pad, personality_by_name("telenet"));
     pad_input_dte(&pad, (const uint8 *)"30199\r", 6);
-    ASSERT_TRUE(contains("30199 CONNECTED"));
+    ASSERT_TRUE(contains("301 99 CONNECTED"));
     reset_io();
     pad_input_dte(&pad, &dle, 1);
     pad_input_dte(&pad, (const uint8 *)"disconnect\r", 11);
-    ASSERT_TRUE(contains("30199 DISCONNECTED"));
+    ASSERT_TRUE(contains("301 99 DISCONNECTED"));
     /* Prompt fired after the confirmation: the user sees @ ready
        to accept the next command. */
     ASSERT_TRUE(contains("@"));
@@ -496,7 +499,7 @@ static void test_telenet_clr_indication_OCC_emits_busy_with_prefix(void)
     pad_input_dte(&pad, (const uint8 *)"30199\r", 6);    /* call places */
     reset_io();
     pad_remote_cleared(&pad, PAD_CLR_NUMBER_BUSY, 1, 0);
-    ASSERT_TRUE(contains("30199 BUSY"));
+    ASSERT_TRUE(contains("301 99 BUSY"));
 }
 
 static void test_telenet_clr_indication_NA_no_address_prefix(void)
@@ -539,7 +542,7 @@ static void test_telenet_clr_indication_RNA_with_prefix(void)
     pad_input_dte(&pad, (const uint8 *)"30199\r", 6);
     reset_io();
     pad_remote_cleared(&pad, PAD_CLR_CANNOT_ROUTE, 0, 0);
-    ASSERT_TRUE(contains("30199 NOT REACHABLE"));
+    ASSERT_TRUE(contains("301 99 NOT REACHABLE"));
 }
 
 static void test_telenet_clr_indication_unmapped_falls_through(void)
@@ -573,7 +576,7 @@ static void test_default_personality_uses_standard_com(void)
     pad_input_dte(&pad, (const uint8 *)"30199\r", 6);
     ASSERT_TRUE(contains("COM"));
     ASSERT_TRUE(!contains("30199 COM"));
-    ASSERT_TRUE(!contains("30199 CONNECTED"));
+    ASSERT_TRUE(!contains("301 99 CONNECTED"));
 }
 
 static void test_default_personality_clr_uses_standard_confirm(void)

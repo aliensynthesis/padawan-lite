@@ -309,7 +309,9 @@ static void emit_signal_text_with_addr(pad_session_t *p, const char *text)
        "[CR LF] CR LF <addr> SP <text> CR LF" still fits with NUL slack. */
     {
         uint32 fixed = 4u + (blank_prefix ? 2u : 0u)
-                          + (prefix ? 1u : 0u);
+                          + (prefix ? 2u : 0u);   /* addr-text SP, plus a
+                                                     possible GTE older-style
+                                                     area/host SP */
         if (alen + fixed + tlen > sizeof(buf)) {
             tlen = (uint32)sizeof(buf) - fixed - alen;
         }
@@ -321,8 +323,25 @@ static void emit_signal_text_with_addr(pad_session_t *p, const char *text)
     buf[pos++] = IA5_CR;
     buf[pos++] = IA5_LF;
     if (prefix) {
-        memcpy(buf + pos, p->called_address, alen);
-        pos += alen;
+        /* GTE Telenet "older-style" grouping: an address with no '.' is
+           <3-digit area-code><host-ID>; render it "<area> <host>" (e.g.
+           "518 52E") in the call signal. The PlayNET client's dialer
+           requires the exact echo " 518 52E CONNECTED" (BASIC at $1301
+           line 164). Addresses with '.' (e.g. QuantumLink "70339.87")
+           are left as-is. */
+        if (p->personality != NULL &&
+            p->personality->group_area_code_older_style &&
+            alen > 3u &&
+            memchr(p->called_address, '.', alen) == NULL) {
+            memcpy(buf + pos, p->called_address, 3);
+            pos += 3;
+            buf[pos++] = ' ';
+            memcpy(buf + pos, p->called_address + 3, alen - 3);
+            pos += (alen - 3);
+        } else {
+            memcpy(buf + pos, p->called_address, alen);
+            pos += alen;
+        }
         buf[pos++] = ' ';
     }
     memcpy(buf + pos, text, tlen);
