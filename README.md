@@ -47,8 +47,12 @@ packet-switched era.
   NUI prompt, service-signal text, X.3 profile overlay,
   network-specific command synonyms, handshake conventions, and
   PAD-recall semantics) to recreate historical PSPDN PAD
-  experiences. Ships with `default` (X.28-standard) and `telenet`
-  personalities. The Telenet personality includes the
+  experiences. Ships with `default` (X.28-standard), `telenet`, and
+  `telenet-91` personalities. `telenet-91` is `telenet` with the PAD
+  recall character (X.3 parameter 1) set to the graphic `@` (decimal 64)
+  instead of DLE — matching the 1991 USA TODAY Sports Center client's
+  Telenet provisioning, which escapes to the PAD with `@` mid-session.
+  The Telenet personality includes the
   documented two-CR handshake, the `TERMINAL=` prompt, `<address>
   CONNECTED` / `<address> DISCONNECTED` signal formatting,
   multi-shot PAD recall with explicit `CONTINUE`, and command
@@ -143,7 +147,7 @@ followed by `30001<CR>` (session-level NUI).
 | `--trace-prefix PREFIX`       | Override `--trace` filename prefix (implies `--trace`)            |
 | `--trace-line-mode`           | Consolidate CLIENT entries by CR (implies `--trace`)              |
 | `--pcp-port PORT`             | PAD Control Protocol listener on `127.0.0.1:PORT` (`0` = off)     |
-| `--emulate NAME`              | PAD personality: `default` (X.28), `telenet`                      |
+| `--emulate NAME`              | PAD personality: `default` (X.28), `telenet`, `telenet-91`         |
 | `--ttype-claim NAME`          | Default terminal-type claim to hosts (`vt52`/`vt100`/`vt102`/`vt220`/`xterm`/`dumb`/`unknown`/`ansi`; default `vt100`) |
 | `--d1 NAME`                   | term_id the Sprint-era Telenet code `D1` resolves to (same name set as `--ttype-claim`; default `vt100`) |
 | `-h`, `--help`                | Show usage                                                        |

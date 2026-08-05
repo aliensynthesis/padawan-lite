@@ -4,6 +4,23 @@ All notable changes to Padawan-Lite are recorded here. The format
 follows [Keep a Changelog](https://keepachangelog.com/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **`telenet-91` PAD personality.** A clone of `telenet` that differs
+  only in X.3 parameter 1 (PAD recall): the recall character is the
+  graphic `@` (decimal 64) instead of DLE. This matches the Telenet
+  access the 1991 USA TODAY Sports Center DOS client was provisioned
+  against — after connecting to the host it escapes to the PAD with `@`
+  to reconfigure it (`@` recall, then `SET 2:0` / `SET 10:0` / `CONT`).
+  X.3 3.1 permits a user-defined graphic recall character (decimal
+  32–126), so this is a network-profile difference, not a spec
+  deviation; the base `telenet` personality keeps the ITU-T
+  simple-profile DLE. Selectable via `--emulate telenet-91`. A test
+  asserts the overlay tracks `telenet` on every parameter except
+  param 1 (`tests/test_personality.c`).
+
 ## [1.5.7] — 2026-06-01
 
 ### Added

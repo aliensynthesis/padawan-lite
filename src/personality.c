@@ -423,6 +423,88 @@ static const personality_t PERSONALITY_TELENET = {
                                           " 518 52E CONNECTED" */
 };
 
+/* ------------------------------------------------------------------------- */
+/* telenet-91: Telenet as provisioned for the 1991 USA TODAY Sports Center    */
+/* client. Identical to "telenet" except X.3 parameter 1 (PAD recall) is the  */
+/* graphic character '@' (0x40) instead of DLE. The client's 1991 dial        */
+/* captures show it escaping the data-transfer state to the PAD with '@' to   */
+/* reconfigure it (recall, then SET 2:0 / SET 10:0 / CONT). X.3 3.1 permits a */
+/* user-defined graphic recall character (decimal 32-126); this reflects that */
+/* network's provisioning, distinct from the ITU-T simple-profile DLE the     */
+/* base "telenet" personality keeps.                                          */
+/* ------------------------------------------------------------------------- */
+
+/* IDENTICAL to TELENET_PROFILE_OVERLAY above EXCEPT param 1. See that array
+   for the per-parameter (NETLINK-sourced) rationale; the only difference here
+   is param 1 = '@'. The rest MUST stay in lock-step with the telenet overlay
+   (test_personality.c asserts params 2..MAX match). */
+static const uint8 TELENET_91_PROFILE_OVERLAY[X3_PAR_MAX + 1] = {
+    0,                            /* 0  unused */
+    '@',                          /* 1  recall: '@' (0x40) -- the telenet-91
+                                          difference (telenet keeps DLE) */
+    1,                            /* 2  echo on */
+    2,                            /* 3  forward on CR only */
+    PERSONALITY_KEEP,             /* 4  idle */
+    1,                            /* 5  device flow XON/XOFF */
+    5,                            /* 6  signals: standard (1) + prompt bit (4) */
+    21,                           /* 7  break: discard + indication + interrupt */
+    PERSONALITY_KEEP,             /* 8  discard */
+    PERSONALITY_KEEP,             /* 9  cr_pad */
+    PERSONALITY_KEEP,             /* 10 fold */
+    PERSONALITY_KEEP,             /* 11 speed (read-only) */
+    1,                            /* 12 DTE flow */
+    4,                            /* 13 lf_insert */
+    PERSONALITY_KEEP,             /* 14 lf_pad */
+    PERSONALITY_KEEP,             /* 15 edit */
+    127,                          /* 16 cdel: DEL */
+    PERSONALITY_KEEP,             /* 17 ldel */
+    PERSONALITY_KEEP,             /* 18 ldis */
+    1,                            /* 19 esig */
+    PERSONALITY_KEEP,             /* 20 mask */
+    PERSONALITY_KEEP,             /* 21 parity */
+    PERSONALITY_KEEP,             /* 22 page */
+    PERSONALITY_KEEP, PERSONALITY_KEEP, PERSONALITY_KEEP, PERSONALITY_KEEP,
+    PERSONALITY_KEEP, PERSONALITY_KEEP, PERSONALITY_KEEP, PERSONALITY_KEEP
+};
+
+/* telenet-91 personality: a faithful clone of PERSONALITY_TELENET (same
+   banner, prompt, aliases, clear-cause text, pseudo-params, client
+   signatures, handshake, ...), differing ONLY in the profile overlay's
+   recall character (param 1 = '@'). */
+static const personality_t PERSONALITY_TELENET_91 = {
+    "telenet-91",
+    "TELENET",                  /* banner: same network, same wire banner */
+    '@',                        /* prompt char */
+    "ID?",                      /* NUI prompt */
+    "CONNECTED",                /* COM -> "CONNECTED" */
+    "READY",                    /* FREE -> "READY" */
+    "BUSY",                     /* ENGAGED -> "BUSY" */
+    "?",                        /* ERR -> "?" */
+    "DISCONNECTED",             /* CLR CONF -> "DISCONNECTED" */
+    {
+        TELENET_CLR_TEXT[0],  TELENET_CLR_TEXT[1],  TELENET_CLR_TEXT[2],
+        TELENET_CLR_TEXT[3],  TELENET_CLR_TEXT[4],  TELENET_CLR_TEXT[5],
+        TELENET_CLR_TEXT[6],  TELENET_CLR_TEXT[7],  TELENET_CLR_TEXT[8],
+        TELENET_CLR_TEXT[9],  TELENET_CLR_TEXT[10], TELENET_CLR_TEXT[11],
+        TELENET_CLR_TEXT[12], TELENET_CLR_TEXT[13], TELENET_CLR_TEXT[14]
+    },
+    TELENET_91_PROFILE_OVERLAY,        /* <-- the only structural difference */
+    TELENET_ALIASES,
+    1,                                 /* emit_address */
+    2,                                 /* handshake_acks_needed */
+    1,                                 /* prefix_called_address_on_call_signals */
+    (1u << 3) | (1u << 6),             /* clr_text_skip_address_prefix */
+    1,                                 /* keep_command_mode_after_recall */
+    TELENET_PSEUDO_PARAMS,             /* extended_param_ids */
+    (uint8)(sizeof(TELENET_PSEUDO_PARAMS) /
+             sizeof(TELENET_PSEUDO_PARAMS[0])),
+    "TERMINAL=",                       /* terminal_type_prompt */
+    TELENET_CLIENT_SIGNATURES,         /* client_signatures */
+    (uint8)(sizeof(TELENET_CLIENT_SIGNATURES) /
+             sizeof(TELENET_CLIENT_SIGNATURES[0])),
+    1                                  /* group_area_code_older_style */
+};
+
 /* Tymnet personality intentionally removed in v1.4.0.
 
    Rationale: Tymnet's actual implementation proved to be too
@@ -440,6 +522,7 @@ static const personality_t PERSONALITY_TELENET = {
 static const personality_t *const REGISTRY[] = {
     &PERSONALITY_DEFAULT,
     &PERSONALITY_TELENET,
+    &PERSONALITY_TELENET_91,
     NULL
 };
 

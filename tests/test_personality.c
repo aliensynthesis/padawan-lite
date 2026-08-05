@@ -130,6 +130,45 @@ static void test_profile_overlay_applies(void)
     ASSERT_EQ_INT(pad.params.values[X3_PAR_FORWARD], 2);
 }
 
+/* telenet-91 sets the PAD recall character (X.3 param 1) to the graphic
+   '@' (0x40); the base telenet personality leaves it at the profile default
+   (DLE, value 1). See the 1991 USA TODAY client capture / X.3 3.1. */
+static void test_telenet91_recall_char_is_at(void)
+{
+    pad_session_t pad;
+
+    reset_io();
+    pad_init(&pad, X3_PROFILE_SIMPLE, cb_dte, cb_remote, NULL);
+    ASSERT_EQ_INT(pad.params.values[X3_PAR_RECALL], 1);       /* simple = DLE */
+    pad_set_personality(&pad, personality_by_name("telenet"));
+    ASSERT_EQ_INT(pad.params.values[X3_PAR_RECALL], 1);       /* telenet keeps DLE */
+
+    pad_init(&pad, X3_PROFILE_SIMPLE, cb_dte, cb_remote, NULL);
+    pad_set_personality(&pad, personality_by_name("telenet-91"));
+    ASSERT_EQ_INT(pad.params.values[X3_PAR_RECALL], '@');     /* telenet-91 = '@' */
+}
+
+/* telenet-91 must be a faithful clone of telenet apart from the recall char:
+   its profile overlay differs ONLY at param 1. Guards against future drift. */
+static void test_telenet91_tracks_telenet_except_recall(void)
+{
+    const personality_t *t;
+    const personality_t *t91;
+    int i;
+
+    t   = personality_by_name("telenet");
+    t91 = personality_by_name("telenet-91");
+    ASSERT_TRUE(t != NULL);
+    ASSERT_TRUE(t91 != NULL);
+    ASSERT_EQ_INT(strcmp(t91->name, "telenet-91"), 0);
+
+    ASSERT_EQ_INT(t->profile_overlay[X3_PAR_RECALL], PERSONALITY_KEEP);
+    ASSERT_EQ_INT(t91->profile_overlay[X3_PAR_RECALL], '@');
+    for (i = 2; i <= X3_PAR_MAX; i++) {
+        ASSERT_EQ_INT(t91->profile_overlay[i], t->profile_overlay[i]);
+    }
+}
+
 static void test_profile_overlay_skips_speed_param(void)
 {
     pad_session_t pad;
@@ -865,6 +904,8 @@ int main(void)
     test_telenet_personality_replaces_stat();
     test_telenet_personality_replaces_err();
     test_profile_overlay_applies();
+    test_telenet91_recall_char_is_at();
+    test_telenet91_tracks_telenet_except_recall();
     test_profile_overlay_skips_speed_param();
     test_nui_prompt_text_overridden();
     test_personality_null_reverts_to_default();
