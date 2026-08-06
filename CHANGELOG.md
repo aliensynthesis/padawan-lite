@@ -53,7 +53,7 @@ adheres to [Semantic Versioning](https://semver.org/).
   the full reasoning, including why the pamphlet's semicolon is the
   weakest-attested of the three.
 
-- **Network-path emulation (`--path-delay MS`, default 1000).** A pause
+- **Network-path emulation (`path-delay` / `--path-delay MS`).** A pause
   inserted after the login is accepted and *before* the call to the host
   is placed, standing in for the time a real TYMNET spent calculating a
   route and threading a "needle" node by node across the network before
@@ -62,10 +62,12 @@ adheres to [Semantic Versioning](https://semver.org/).
   the lag being modelled sits behind the PAD rather than at the host,
   and no host output can be missed while it runs — there is no
   connection yet. Type-ahead during the pause is preserved and replayed.
-  `0` disables it. Settable per-installation as `path-delay <ms>` in
-  `tymnet.cfg`; resolution is `--path-delay`, then the config file, then
-  the 1000 ms built-in default, so an operator can override a
-  provisioned installation without editing its Tymfile equivalent. The
+  `0` disables it. Normally provisioned per-installation as
+  `path-delay <ms>` in `tymnet.cfg`, which the shipped sample sets to
+  1000 ms; resolution is `--path-delay`, then the config file, then the
+  built-in default of `0`. The code adds no latency of its own — stating
+  what the network felt like is configuration's job — so an unconfigured
+  run behaves exactly as it did before the feature existed. The
   startup line reports which of the three the effective value came
   from. Applies to `--emulate tymnet` only; the PAD has the same seam
   available but no delay is wired in yet, and passing the flag without

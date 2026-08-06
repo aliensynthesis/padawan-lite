@@ -948,14 +948,34 @@ static void test_path_delay_zero_connects_immediately(void)
     ASSERT_TRUE(dte_has("call connected"));
 }
 
-/* The documented default is 1000 ms; the driver converts at 20 Hz. */
-static void test_path_delay_default_constants(void)
+/* The built-in default adds no latency: the delay is a tunable, and
+   with neither tymnet.cfg nor --path-delay supplying one the emulation
+   behaves as it did before the feature existed. */
+static void test_path_delay_default_is_off(void)
 {
-    ASSERT_EQ_INT(TYMSAT_DEFAULT_PATH_DELAY_MS, 1000);
-    ASSERT_EQ_INT(TYMSAT_DEFAULT_PATH_DELAY_20THS, 20);
-    /* 1000 ms at 50 ms per tick. */
+    tymsat_session_t s;
+    tymsat_config_t  cfg;
+
+    ASSERT_EQ_INT(TYMSAT_DEFAULT_PATH_DELAY_MS, 0);
+    ASSERT_EQ_INT(TYMSAT_DEFAULT_PATH_DELAY_20THS, 0);
+    /* The ms -> ticks conversion the driver applies still agrees. */
     ASSERT_EQ_INT((TYMSAT_DEFAULT_PATH_DELAY_MS + 49) / 50,
                   TYMSAT_DEFAULT_PATH_DELAY_20THS);
+
+    /* A config carrying the built-in default connects inline. */
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.node_number      = 4242;
+    cfg.port_number      = 56;
+    cfg.users            = USERS;
+    cfg.user_count       = USER_COUNT;
+    cfg.path_delay_20ths = TYMSAT_DEFAULT_PATH_DELAY_20THS;
+
+    start_session(&s, &cfg);
+    feed(&s, "DAVID\r");
+    reset_io();
+    feed(&s, "secret\r");
+    ASSERT_EQ_INT(s.state, TYMSAT_STATE_DATA_TRANSFER);
+    ASSERT_TRUE(dte_has("call connected"));
 }
 
 /* --- message catalogue ------------------------------------------------ */
@@ -1074,7 +1094,7 @@ int main(void)
     test_path_delay_reports_pending_timer();
     test_path_delay_preserves_typeahead();
     test_path_delay_zero_connects_immediately();
-    test_path_delay_default_constants();
+    test_path_delay_default_is_off();
     test_pending_timer_tracks_tick_states();
     test_pending_timer_agrees_with_tick();
     test_message_text_matches_pamphlet();

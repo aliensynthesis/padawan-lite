@@ -1605,7 +1605,8 @@ bridge/main.c - Sprint-era Telenet TERMINAL= code recognition.
   delay.
 
   Precedence is --path-delay, then tymnet.cfg's path-delay, then the
-  1000 ms built-in default: the command line outranks the config file
+  built-in default of 0 (no delay): the command line outranks the
+  config file
   so an operator can override a provisioned installation without
   editing its Tymfile equivalent. Note this makes path-delay unlike
   every other tymnet.cfg directive, which have no command-line
@@ -1621,8 +1622,15 @@ bridge/main.c - Sprint-era Telenet TERMINAL= code recognition.
   dispatch and could take the same treatment, but no delay is wired in
   for it; passing --path-delay without --emulate tymnet warns.
 
+  The compiled-in default adds no latency. Because the delay is a
+  tunable rather than a behaviour the emulation can justify from the
+  sources, the opinion about what a network felt like lives in
+  tymnet.cfg (shipped set to 1000 ms) rather than in the code, and an
+  unconfigured run behaves exactly as it did before the feature
+  existed.
+
   VERIFY: no source quantifies real circuit-build time -- it varied
-  with path length, and neither document gives a figure. 1000 ms is a
-  plausible default, not a documented one. A jittered delay would model
-  path-length variance better; deliberately not done, so tests stay
-  deterministic.
+  with path length, and neither document gives a figure. The shipped
+  1000 ms is a plausible value, not a documented one. A jittered delay
+  would model path-length variance better; deliberately not done, so
+  tests stay deterministic.

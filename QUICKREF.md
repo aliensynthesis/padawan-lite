@@ -28,9 +28,10 @@ padawan-lite [-c FILE] [-l PORT] [-a FILE] [-t] [-b BPS]
 `--path-delay <ms>` inserts a pause after the login is accepted and
 before the call to the host is placed, standing in for the time a real
 TYMNET spent routing and threading a needle across the network. `0`
-disables it. TYMNET only for now. The same setting can be provisioned
-per-installation as `path-delay <ms>` in `tymnet.cfg`; resolution is
-command line, then config file, then the 1000 ms built-in default.
+disables it. TYMNET only for now. The setting is normally provisioned
+per-installation as `path-delay <ms>` in `tymnet.cfg` (the shipped one
+sets 1000 ms); resolution is command line, then config file, then the
+built-in default of 0, i.e. no delay.
 
 `--emulate tymnet` replaces the PAD entirely with the stand-alone
 TYMSAT front end. None of the X.28 commands, X.3 parameters or PAD

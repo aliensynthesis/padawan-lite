@@ -149,10 +149,18 @@
    match pad_tick's convention: 120 s * 20 = 2400. */
 #define TYMSAT_LOGIN_TIMEOUT_20THS  2400UL
 
-/* Default network-path emulation delay: 1000 ms = 20 twentieths.
+/* Built-in network-path emulation delay: OFF.
+
+   The delay is a tunable, not a behaviour the emulation asserts on its
+   own: tymnet.cfg's "path-delay" directive is where an installation
+   states what its network felt like, and --path-delay overrides that.
+   With neither supplied the code adds no latency of its own, so an
+   unconfigured run behaves exactly as it did before the feature
+   existed. The shipped tymnet.cfg sets 1000 ms.
+
    See tymsat_config_t.path_delay_20ths. */
-#define TYMSAT_DEFAULT_PATH_DELAY_MS     1000
-#define TYMSAT_DEFAULT_PATH_DELAY_20THS  20
+#define TYMSAT_DEFAULT_PATH_DELAY_MS     0
+#define TYMSAT_DEFAULT_PATH_DELAY_20THS  0
 
 /* Session states.
    Derived from the login procedure in [HTU82:24-61] and the five

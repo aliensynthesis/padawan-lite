@@ -183,9 +183,11 @@ static int             g_tymnet_mode = 0;
    Resolution order, highest first:
      1. --path-delay on the command line
      2. a "path-delay" line in tymnet.cfg
-     3. TYMSAT_DEFAULT_PATH_DELAY_MS
+     3. TYMSAT_DEFAULT_PATH_DELAY_MS, which is 0 -- no delay
    The command line wins so an operator can override a provisioned
-   installation without editing its Tymfile equivalent. */
+   installation without editing its Tymfile equivalent. The built-in
+   default adds nothing, leaving the delay entirely to configuration;
+   the shipped tymnet.cfg sets 1000 ms. */
 static int             g_path_delay_ms  = TYMSAT_DEFAULT_PATH_DELAY_MS;
 static int             g_path_delay_set = 0;   /* --path-delay given? */
 /* Set by load_tymnet_cfg when the file carries a path-delay line. A
@@ -1191,8 +1193,9 @@ static void usage(const char *argv0)
                                  " TYMSAT front end\n"
         "      --path-delay <ms>    network-path emulation delay before"
                                  " the host call\n"
-        "                           (--emulate tymnet only; default"
-                                 " 1000, 0 = off)\n");
+        "                           (--emulate tymnet only; overrides"
+                                 " tymnet.cfg path-delay,\n"
+        "                           default 0 = off)\n");
     fprintf(stderr,
         "      --ttype-claim <name> default terminal-type claim"
                                  " (vt52, vt100, vt102, vt220, xterm,\n"
