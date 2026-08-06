@@ -4,7 +4,7 @@ All notable changes to Padawan-Lite are recorded here. The format
 follows [Keep a Changelog](https://keepachangelog.com/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.6.0] — 2026-08-06
 
 ### Added
 
