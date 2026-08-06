@@ -383,6 +383,17 @@ static void enter_data_transfer(tymsat_session_t *s)
 {
     s->state = TYMSAT_STATE_DATA_TRANSFER;
 
+    /* Mark the call handle live, mirroring what pad_call_connected
+       does for the PAD. Both entry points reach here: begin_circuit's
+       synchronous X25_OK (where the transport has already set it) and
+       tymsat_circuit_connected on async completion (where nothing
+       else would). Omitting it left call.connected at 0 for the whole
+       session on the async path -- which is the normal path for a real
+       TCP connect -- so a driver testing the handle to decide whether
+       to tear the call down concluded there was nothing to tear down,
+       and the host connection leaked when the client hung up. */
+    s->call.connected = 1;
+
     /* Connect acknowledgement. The default is the client-observed
        "call connected"; the pamphlet's two examples ([HTU82:49-53])
        remain selectable. See tymsat_config_t.accept_msg. */
@@ -417,6 +428,11 @@ static void enter_data_transfer(tymsat_session_t *s)
 static void return_to_login(tymsat_session_t *s)
 {
     reset_login_state(s);
+    /* The circuit is gone by the time we get here, so the handle must
+       not keep advertising itself as live -- otherwise a later
+       teardown would try to clear a call that no longer exists. */
+    s->call.connected = 0;
+    s->call.call_id   = 0;
     s->state = TYMSAT_STATE_AWAITING_LOGIN;
     emit_prompt(s, TYMSAT_MSG_PLEASE_LOG_IN);
 }

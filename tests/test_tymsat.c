@@ -697,6 +697,66 @@ static void test_typeahead_during_circuit_build_is_replayed(void)
     x25_stub_set_async(0);
 }
 
+/* --- call-handle state ------------------------------------------------ */
+
+/* The call handle must advertise itself as live for as long as the
+   circuit is up. A driver tearing a session down tests this to decide
+   whether there is a call to clear; while it stayed 0, a TYMNET
+   client hanging up leaked its host connection. Mirrors what
+   pad_call_connected does for the PAD. */
+static void test_call_handle_live_after_sync_connect(void)
+{
+    tymsat_session_t s;
+    tymsat_config_t  cfg = make_cfg();
+
+    start_session(&s, &cfg);
+    ASSERT_EQ_INT(s.call.connected, 0);
+    feed(&s, "ALICE\r");
+    feed(&s, "secret\r");
+    ASSERT_EQ_INT(s.state, TYMSAT_STATE_DATA_TRANSFER);
+    ASSERT_EQ_INT(s.call.connected, 1);
+}
+
+/* The async path is the one that matters in production -- a real TCP
+   connect returns X25_IN_PROGRESS -- and it is the one that was
+   broken, since nothing but the transport touched the handle. */
+static void test_call_handle_live_after_async_connect(void)
+{
+    tymsat_session_t s;
+    tymsat_config_t  cfg = make_cfg();
+
+    reset_io();
+    x25_stub_set_async(1);
+    tymsat_init(&s, &cfg, cb_dte, cb_remote, NULL);
+    feed(&s, "A");
+    feed(&s, "INFORMATION\r");
+    ASSERT_EQ_INT(s.state, TYMSAT_STATE_CIRCUIT_BUILD);
+    ASSERT_EQ_INT(s.call.connected, 0);
+
+    tymsat_circuit_connected(&s);
+    ASSERT_EQ_INT(s.state, TYMSAT_STATE_DATA_TRANSFER);
+    ASSERT_EQ_INT(s.call.connected, 1);
+
+    x25_stub_set_async(0);
+}
+
+/* And it must stop advertising itself once the circuit is gone, or a
+   later teardown would try to clear a call that no longer exists. */
+static void test_call_handle_cleared_after_circuit_loss(void)
+{
+    tymsat_session_t s;
+    tymsat_config_t  cfg = make_cfg();
+
+    start_session(&s, &cfg);
+    feed(&s, "INFORMATION\r");
+    ASSERT_EQ_INT(s.call.connected, 1);
+
+    tymsat_circuit_cleared(&s, TYMSAT_MSG_DROPPED_BY_HOST_SYSTEM);
+    ASSERT_EQ_INT(s.state, TYMSAT_STATE_AWAITING_LOGIN);
+    ASSERT_EQ_INT(s.call.connected, 0);
+    ASSERT_EQ_INT(s.call.call_id, 0);
+}
+
 /* --- teardown --------------------------------------------------------- */
 
 /* [HTU82:57-61] "After you have logged off from the host computer, you
@@ -1083,6 +1143,9 @@ int main(void)
     test_xoff_intercepted_with_control_r();
     test_typeahead_during_circuit_build_is_replayed();
 
+    test_call_handle_live_after_sync_connect();
+    test_call_handle_live_after_async_connect();
+    test_call_handle_cleared_after_circuit_loss();
     test_logoff_returns_to_login_without_new_tid();
 
     test_two_minute_login_timeout();

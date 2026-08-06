@@ -501,14 +501,24 @@ static user_session_t *alloc_session(void)
 
 static void destroy_session(user_session_t *u)
 {
+    x25_call_t *call;
+
     if (!u || !u->in_use) return;
     /* Release any PCP control connection bound to this session before
-       the pad_session_t goes away. */
-    pcp_unbind_session(&u->pad);
+       the pad_session_t goes away. PCP is an X.29 event channel and
+       only ever binds PAD sessions, so there is nothing to release for
+       a TYMSAT one -- and &u->pad would be a zeroed struct there. */
+    if (u->kind != BRIDGE_SESSION_TYMSAT) {
+        pcp_unbind_session(&u->pad);
+    }
     /* Close the bridge call (if any) before freeing the session, so
-       the TCP socket on the X.25 side doesn't leak. */
-    if (u->pad.call.connected) {
-        x25_clear(&u->pad.call, 0, 0);
+       the TCP socket on the X.25 side doesn't leak. The handle must
+       come from session_call: a TYMSAT session's call lives in
+       u->tymsat.call, and testing u->pad.call directly left every
+       TYMNET client disconnect leaking its host connection. */
+    call = session_call(u);
+    if (call->connected) {
+        x25_clear(call, 0, 0);
     }
     trace_close(u);
     if (!u->is_stdin && u->read_fd >= 0) {

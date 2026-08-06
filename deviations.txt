@@ -1634,3 +1634,45 @@ bridge/main.c - Sprint-era Telenet TERMINAL= code recognition.
   1000 ms is a plausible value, not a documented one. A jittered delay
   would model path-length variance better; deliberately not done, so
   tests stay deterministic.
+
+[2026-08-06] src/tymsat.c, bridge/main.c - TYMNET client disconnect leaked
+  the host connection (bug introduced 2026-08-05, fixed here)
+  When a client connected to --emulate tymnet hung up, the outbound TCP
+  connection to the host was never closed. The socket leaked, the
+  bridge call slot stayed in use, and the host went on believing the
+  session was alive.
+
+  Two faults, both needed fixing:
+
+  1. destroy_session (bridge/main.c) decided whether to tear the call
+     down by testing u->pad.call.connected. A TYMSAT session's call
+     handle is u->tymsat.call, so for --emulate tymnet the test read a
+     zeroed struct and was always false. session_call() existed for
+     exactly this and was not used here.
+
+  2. Nothing ever set call.connected for a TYMSAT session. The PAD sets
+     it in pad_call_connected (src/pad.c); the TYMSAT equivalent,
+     tymsat_circuit_connected -> enter_data_transfer, did not. On the
+     synchronous path the transport had already set it, which masked
+     the fault in unit tests; on the async path -- X25_IN_PROGRESS,
+     what a real non-blocking TCP connect actually returns -- it stayed
+     0 for the life of the session. So fixing (1) alone changed
+     nothing, as an end-to-end probe confirmed before (2) was found.
+
+  Fixes: enter_data_transfer sets s->call.connected = 1;
+  return_to_login clears connected and call_id, so a handle whose
+  circuit is gone does not invite a teardown of a call that no longer
+  exists; destroy_session uses session_call() and skips
+  pcp_unbind_session for TYMSAT sessions, PCP being an X.29 channel
+  that never binds them.
+
+  Missed because no test covered the driver's teardown path, and the
+  unit tests exercised only the synchronous connect, where the
+  transport masks the missing assignment. Three tests now pin the
+  invariant: the handle is live after a synchronous connect, live
+  after an async one, and cleared once the circuit is lost.
+
+  Verified end to end: a client logs in over the TCP listener, hangs
+  up, and the stand-in host now observes EOF within the probe window;
+  before the fix it observed nothing and could still write to the
+  socket.
