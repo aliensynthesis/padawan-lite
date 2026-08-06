@@ -110,6 +110,83 @@ adheres to [Semantic Versioning](https://semver.org/).
   asserts the overlay tracks `telenet` on every parameter except
   param 1 (`tests/test_personality.c`).
 
+## [1.5.10] — 2026-07-31
+
+### Added
+
+- **`group_area_code_older_style` personality field.** When set, an
+  address containing no `.` is rendered as `<first 3> <rest>` in
+  address-prefixed service signals — `518 52E CONNECTED`,
+  `518 52E DISCONNECTED`, and so on. Addresses that do contain a `.`
+  (QuantumLink's `70339.87`, for instance) are left ungrouped. ON for
+  the `telenet` personality, OFF for `default`, which keeps strict
+  X.28 rendering.
+
+  Motivation: the PlayNET C64 client's dialer BASIC at `$1301` line 164
+  gates connect success on the EXACT echo `" 518 52E CONNECTED"`.
+  Without the grouping the client never leaves its connect screen.
+
+### Fixed
+
+- **Older-style GTE Telenet addresses were truncated at capture.**
+  `capture_address_and_cud` in `src/x28_signals.c` stopped the DTE
+  address at the first letter, so the PlayNET dialer's NUA `51852E`
+  (area code `518` + host ID `52E`, with no `.` separator) was captured
+  as `518`. A letter following the leading address characters is now
+  kept as part of the address, guarded by `j > 0` so that a LEADING
+  letter still terminates — `C12345` still yields an empty address,
+  preserving X.28 command-keyword semantics.
+
+  Telenet-personality tests were updated to the grouped form
+  (`30199` → `301 99`); the default personality is unchanged.
+
+## [1.5.9] — 2026-06-05
+
+### Added
+
+- **`extra_blank_line_on_call_signals` in `client_signature_t`.**
+  Copied to a new session field at SET / SET? fingerprint-match time.
+  When set, the address-prefixed service-signal emitter
+  (`emit_signal_text_with_addr`) prepends an extra `CR LF`, yielding
+  `CR LF CR LF <addr> SP <text> CR LF` for CONNECTED, CLR CONF and
+  clear-indication — on that session only.
+
+  Enabled on the Q-Link signature. The Q-Link BASIC dialer in
+  `0006.prg` (lines 9836–9850) makes three sequential "read until CR"
+  passes over the post-CONNECT stream and matches `RIGHT$(M$, 9)`
+  against `"CONNECTED"`. That requires two CRs at the very start, so
+  the second CR exits the second pass before any content is consumed.
+  Previously the leading CR pair came from the echoed CR plus the
+  response's own leading CR; once v1.5.8 disabled echo for Q-Link
+  sessions, it had to come from the signal itself.
+
+  The default personality and every other Telenet client are
+  unaffected — the flag defaults to `0` and the X.28-standard
+  `CR LF <text> CR LF` framing is preserved. Existing tests pass
+  unchanged.
+
+## [1.5.8] — 2026-06-05
+
+### Fixed
+
+- **Q-Link sessions never progressed past the "being verified"
+  screen.** The Q-Link client signature's override set now also forces
+  X.3 parameter 2 to `0` (echo off), joining the existing
+  `{1, 5, 12, 13}` overrides.
+
+  Without it the Telenet personality's echo-on overlay stayed active
+  for QuantumLink sessions, and the PAD echoed every C64-outgoing byte
+  back to the C64. The client's receive parser at `$B877` treats those
+  echoes as though they came from the server, assembles them into
+  phantom frames that pass both the CRC and dispatch checks, and the
+  cmd-`$25` / cmd-`$20` success paths (`$BB34` / `$B91F`) advance the
+  client's `$B993` sequence counter via `$BC54` for each one. The real
+  server's frames then arrived out of sequence lockstep and the session
+  stalled.
+
+  Confirmed 2026-06-05 against the C64 client with a VICE watchpoint on
+  `$B993` stores.
+
 ## [1.5.7] — 2026-06-01
 
 ### Added
