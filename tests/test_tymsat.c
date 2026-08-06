@@ -783,6 +783,70 @@ static void test_timer_resets_on_field_entry(void)
     ASSERT_TRUE(!dte_has("pls see your rep"));
 }
 
+/* An event-loop driver must keep ticking while the login limit runs,
+   or the limit never expires. tymsat_has_pending_timer is what tells
+   it so; these assertions pin the states it must cover to the states
+   tymsat_tick actually acts on. */
+static void test_pending_timer_tracks_tick_states(void)
+{
+    tymsat_session_t s;
+    tymsat_config_t  cfg = make_cfg();
+
+    reset_io();
+    tymsat_init(&s, &cfg, cb_dte, cb_remote, NULL);
+    /* Awaiting the terminal identifier: the limit starts AFTER the
+       identifier is entered, so nothing is counting down yet. */
+    ASSERT_EQ_INT(tymsat_has_pending_timer(&s), 0);
+
+    feed(&s, "A");
+    ASSERT_EQ_INT(s.state, TYMSAT_STATE_AWAITING_LOGIN);
+    ASSERT_EQ_INT(tymsat_has_pending_timer(&s), 1);
+
+    feed(&s, "DAVID\r");
+    ASSERT_EQ_INT(s.state, TYMSAT_STATE_AWAITING_PASSWORD);
+    ASSERT_EQ_INT(tymsat_has_pending_timer(&s), 1);
+
+    feed(&s, "secret\r");
+    ASSERT_EQ_INT(s.state, TYMSAT_STATE_DATA_TRANSFER);
+    ASSERT_EQ_INT(tymsat_has_pending_timer(&s), 0);
+
+    ASSERT_EQ_INT(tymsat_has_pending_timer(NULL), 0);
+}
+
+/* Every state for which tymsat_tick can do something must be reported
+   by tymsat_has_pending_timer, or a driver will sleep through it. */
+static void test_pending_timer_agrees_with_tick(void)
+{
+    static const tymsat_state_t STATES[] = {
+        TYMSAT_STATE_IDLE, TYMSAT_STATE_AWAITING_TID,
+        TYMSAT_STATE_AWAITING_LOGIN, TYMSAT_STATE_AWAITING_PASSWORD,
+        TYMSAT_STATE_CIRCUIT_BUILD, TYMSAT_STATE_DATA_TRANSFER,
+        TYMSAT_STATE_CLEARED
+    };
+    tymsat_config_t cfg = make_cfg();
+    int i;
+
+    for (i = 0; i < (int)(sizeof(STATES) / sizeof(STATES[0])); i++) {
+        tymsat_session_t s;
+        int advertised;
+        int acted;
+
+        reset_io();
+        tymsat_init(&s, &cfg, cb_dte, cb_remote, NULL);
+        s.state = STATES[i];
+        s.login_ticks = 0;
+
+        advertised = tymsat_has_pending_timer(&s);
+        /* A tick large enough to expire anything: if tick changes the
+           session or emits, the state was time-driven. */
+        reset_io();
+        (void)tymsat_tick(&s, TYMSAT_LOGIN_TIMEOUT_20THS);
+        acted = (s.login_ticks != 0) || (g_dte_len != 0);
+
+        ASSERT_EQ_INT(advertised, acted);
+    }
+}
+
 /* --- message catalogue ------------------------------------------------ */
 
 /* Spot-check the catalogue against [HTU82:196-289]. */
@@ -894,6 +958,8 @@ int main(void)
     test_timer_does_not_fire_during_session();
     test_timer_resets_on_field_entry();
 
+    test_pending_timer_tracks_tick_states();
+    test_pending_timer_agrees_with_tick();
     test_message_text_matches_pamphlet();
     test_message_text_bounds();
     test_uppercase_message_mode();

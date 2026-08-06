@@ -790,6 +790,18 @@ int tymsat_tick(tymsat_session_t *s, uint32 elapsed_20ths)
     return 1;
 }
 
+int tymsat_has_pending_timer(const tymsat_session_t *s)
+{
+    if (s == NULL) return 0;
+
+    /* The two-minute login limit ([HTU82:262]) runs from the terminal
+       identifier being accepted until login completes, so exactly the
+       states tymsat_tick acts on. Keep this in step with tymsat_tick's
+       own state test. */
+    return (s->state == TYMSAT_STATE_AWAITING_LOGIN ||
+            s->state == TYMSAT_STATE_AWAITING_PASSWORD);
+}
+
 void tymsat_circuit_connected(tymsat_session_t *s)
 {
     if (s == NULL || s->state != TYMSAT_STATE_CIRCUIT_BUILD) return;

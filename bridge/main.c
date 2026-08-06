@@ -1455,7 +1455,16 @@ int main(int argc, char **argv)
                     idx_bridge[i] = nfds++;
                 }
             }
-            if (g_sessions[i].pad.state == PAD_STATE_DATA_TRANSFER &&
+            if (g_sessions[i].kind == BRIDGE_SESSION_TYMSAT) {
+                /* A TYMSAT session counting down the two-minute login
+                   limit is waiting on elapsed time, not on any
+                   descriptor. Without this the poll below blocks on -1
+                   and tymsat_tick never runs, so the limit never
+                   fires for an otherwise idle session. */
+                if (tymsat_has_pending_timer(&g_sessions[i].tymsat)) {
+                    any_ticking = 1;
+                }
+            } else if (g_sessions[i].pad.state == PAD_STATE_DATA_TRANSFER &&
                 g_sessions[i].pad.asm_len > 0 &&
                 g_sessions[i].pad.params.values[X3_PAR_IDLE] != 0) {
                 any_ticking = 1;

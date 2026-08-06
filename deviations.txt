@@ -1535,3 +1535,35 @@ bridge/main.c - Sprint-era Telenet TERMINAL= code recognition.
   USA TODAY Sports Center client); this entry should be amended with
   the client's identity and, if available, the capture, so a later
   reader can weigh it the same way.
+
+[2026-08-06] bridge/main.c - TYMSAT login timer was never advanced by the
+  driver (bug introduced 2026-08-05, fixed here)
+  The two-minute login limit of [HTU82:262] did not fire. tymsat_tick
+  was called from the main loop, but only after poll() returned, and
+  the loop's poll timeout is chosen by any_ticking:
+
+      timeout = any_ticking ? 50 : -1;
+
+  any_ticking had conditions for PAD idle timers and for the --baud
+  throttle queues, and none for TYMSAT sessions. A TYMSAT session that
+  entered its terminal identifier and then went idle left poll() with
+  no readable descriptor and a -1 timeout, so poll blocked
+  indefinitely, tymsat_tick never ran, and the limit never expired.
+  Confirmed under strace: poll([{fd=0, events=POLLIN}], 1, -1).
+
+  Missed because tests/test_tymsat.c drives tymsat_tick directly and
+  never exercises the driver loop -- the unit tests for the timer
+  passed throughout. This is a general hazard for time-driven state in
+  this codebase: a state machine's timer is only as real as the
+  driver's willingness to keep calling it.
+
+  Fix: tymsat_has_pending_timer() reports whether a session is waiting
+  on elapsed time rather than on I/O, and main.c's poll-set builder
+  sets any_ticking from it. Verified end to end: an idle session now
+  emits "pls see your rep" and drops at 120.6 s against a documented
+  limit of 120 s, and strace shows the 50 ms timeout.
+
+  Two tests guard it: one pins the states the predicate reports, and
+  one asserts the predicate agrees with tymsat_tick for every state --
+  so a future state with a timer cannot be added without the predicate
+  being updated to match.

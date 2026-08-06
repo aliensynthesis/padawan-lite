@@ -527,6 +527,16 @@ void tymsat_input_remote(tymsat_session_t *s, const uint8 *data, uint32 len);
    A no-op once DATA_TRANSFER has been reached. */
 int tymsat_tick(tymsat_session_t *s, uint32 elapsed_20ths);
 
+/* Non-zero when this session has a timer that only tymsat_tick can
+   advance, i.e. when it is waiting on elapsed time rather than on I/O.
+
+   Event-loop drivers MUST consult this when choosing their poll
+   timeout. A driver that blocks indefinitely whenever no descriptor is
+   readable will never call tymsat_tick, and any state this session is
+   counting down will never expire -- the two-minute login limit will
+   not fire for an otherwise idle session. See deviations.txt. */
+int tymsat_has_pending_timer(const tymsat_session_t *s);
+
 /* Circuit-establishment results, called by the transport when
    tymsat_input_dte's x25_call returned X25_IN_PROGRESS. */
 void tymsat_circuit_connected(tymsat_session_t *s);
