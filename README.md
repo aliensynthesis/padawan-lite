@@ -121,12 +121,12 @@ Interactive stdin session against a service listening on local port
 
 ```sh
 $ ./padawan-lite
-Padawan-Lite v1.2 - profile 1 (simple).
+Padawan-Lite v1.6.0 - profile 1 (simple).
 Address = TCP port on localhost (override via -c map).
 Press Enter to begin. Ctrl-B = break, Ctrl-P = recall, Ctrl-D = exit.
 
 <Enter>
-PADAWAN-LITE v1.2
+PADAWAN-LITE v1.6.0
 30001                                 # place the call
 COM                                   # connected
 ... interactive session ...
@@ -139,7 +139,7 @@ $ ./padawan-lite --listen 30000 \
             --auth nuis.txt \
             --baud 1200 \
             --telnet-defaults
-Padawan-Lite v1.2 - listening on TCP port 30000 (MAX_SESSIONS = 16).
+Padawan-Lite v1.6.0 - listening on TCP port 30000 (MAX_SESSIONS = 16).
 NUI auth: 2 entries loaded; calls require a matching N facility.
 Telnet-friendly defaults: SET 2:0, 3:0, 4:1 applied per session.
 Throttle: 120 bytes/sec per direction per session.

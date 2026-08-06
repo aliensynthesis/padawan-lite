@@ -1,6 +1,6 @@
 # PCP — PAD Control Protocol User Guide
 
-For Padawan-Lite v1.2 (`bridge/pcp.{h,c}`).
+For Padawan-Lite v1.6.0 (`bridge/pcp.{h,c}`).
 
 ## Overview
 

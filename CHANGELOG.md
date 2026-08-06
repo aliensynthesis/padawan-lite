@@ -6,6 +6,21 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ## [1.6.0] — 2026-08-06
 
+### Changed
+
+- **Version strings now read `1.6.0`.** The product had identified
+  itself as `v1.2` since 1.3.0 — six separate literals in
+  `bridge/main.c`, each spelled out by hand. They now derive from a
+  single `PADAWAN_VERSION` macro so they cannot drift apart again.
+
+  Two of the six are **wire-visible**: the X.28 §3.5.18 PAD
+  identification emitted at handshake now reads `PADAWAN-LITE v1.6.0`
+  rather than `PADAWAN-LITE v1.2`. A client that matches on that text
+  exactly will see a different string. The `telenet` and `telenet-91`
+  personalities are unaffected — they override the identification with
+  their own `TELENET` banner, so nothing changes on the wire for them.
+  Only the `default` personality emits it.
+
 ### Added
 
 - **TYMNET emulation via a stand-alone TYMSAT front end

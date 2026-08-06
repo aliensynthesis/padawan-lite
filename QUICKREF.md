@@ -1,6 +1,6 @@
 # Padawan-Lite Quick Reference
 
-For ITU-T X.28 Packet Assembler/Disassembler v1.2.
+For ITU-T X.28 Packet Assembler/Disassembler v1.6.0.
 
 ## Invocation
 
@@ -214,7 +214,7 @@ Loaded via `--config FILE`. Max 32 entries; address ≤ 15 chars, host
 
 ```
 $ padawan-lite --auth nuis.txt --config addrs.txt --telnet-defaults --listen 30000
-Padawan-Lite v1.2 - listening on TCP port 30000 (MAX_SESSIONS = 16).
+Padawan-Lite v1.6.0 - listening on TCP port 30000 (MAX_SESSIONS = 16).
 NUI auth: 1 entries loaded; calls require a matching N facility.
 Telnet-friendly defaults: SET 2:0, 3:0, 4:1 applied per session.
 ```
@@ -223,7 +223,7 @@ From another terminal:
 ```
 $ telnet localhost 30000
 <CR>                          # complete handshake
-PADAWAN-LITE v1.2
+PADAWAN-LITE v1.6.0
 Ndavid-30001<CR>              # call address 30001 with NUI=david
 COM                           # connected
 ... data flows ...

@@ -70,6 +70,14 @@
 #include <arpa/inet.h>
 #include <fcntl.h>
 
+/* Product version, rendered into every banner and into the X.28
+   §3.5.18 PAD identification. Single definition on purpose: these
+   strings sat at v1.2 from 1.3.0 through 1.5.10 because each was
+   spelled out separately. Note the identification is WIRE-VISIBLE --
+   clients see it at handshake -- so changing it is not purely
+   cosmetic. */
+#define PADAWAN_VERSION "1.6.0"
+
 #define MAX_SESSIONS 16
 #define MAX_NUIS     64
 #define NUI_MAX_LEN  31
@@ -883,7 +891,8 @@ static void setup_stdin_session(uint8 profile_id)
         u->handle = bridge_session_from_tymsat(&u->tymsat);
         trace_open(u, 1);
         fprintf(stderr,
-                "Padawan-Lite v1.2 - stand-alone TYMSAT (node %u port %u).\n"
+                "Padawan-Lite v" PADAWAN_VERSION
+                " - stand-alone TYMSAT (node %u port %u).\n"
                 "Type a terminal identifier (A-G, I, P). Ctrl-D = exit.\n",
                 (unsigned)g_tymsat_cfg.node_number,
                 (unsigned)g_tymsat_cfg.port_number);
@@ -899,7 +908,7 @@ static void setup_stdin_session(uint8 profile_id)
             destroy_session(u);
             return;
         }
-        pad_set_identification(&u->pad, "PADAWAN-LITE v1.2");
+        pad_set_identification(&u->pad, "PADAWAN-LITE v" PADAWAN_VERSION);
         if (g_auth_active) {
             pad_set_auth_callback(&u->pad, nui_check_cb, NULL);
         }
@@ -912,7 +921,7 @@ static void setup_stdin_session(uint8 profile_id)
         signal(SIGWINCH, on_winch);
         push_window_size();
         fprintf(stderr,
-                "Padawan-Lite v1.2 - profile %u (simple).\n"
+                "Padawan-Lite v" PADAWAN_VERSION " - profile %u (simple).\n"
                 "Address = TCP port on localhost (override via -c map).\n"
                 "Press Enter to begin. Ctrl-B = break, Ctrl-P = recall, "
                 "Ctrl-D = exit.\n",
@@ -932,7 +941,7 @@ static void setup_stdin_session(uint8 profile_id)
             pad_set_trace_callback(&u->pad, trace_callback, u);
         }
         fprintf(stderr,
-                "Padawan-Lite v1.2 (non-interactive).\n");
+                "Padawan-Lite v" PADAWAN_VERSION " (non-interactive).\n");
     }
     fflush(stderr);
 
@@ -1022,7 +1031,7 @@ static void accept_session(uint8 profile_id)
         destroy_session(u);
         return;
     }
-    pad_set_identification(&u->pad, "PADAWAN-LITE v1.2");
+    pad_set_identification(&u->pad, "PADAWAN-LITE v" PADAWAN_VERSION);
     /* Synthetic PAD network-address identity. Resolve the local
        IP:port the user reached us at via getsockname; personalities
        that opt in (Telenet) will emit it on the line after the
@@ -1418,7 +1427,7 @@ int main(int argc, char **argv)
             return 1;
         }
         fprintf(stderr,
-                "Padawan-Lite v1.2 - listening on TCP port %d "
+                "Padawan-Lite v" PADAWAN_VERSION " - listening on TCP port %d "
                 "(MAX_SESSIONS = %d).\n",
                 listen_port, MAX_SESSIONS);
         if (g_auth_active) {
