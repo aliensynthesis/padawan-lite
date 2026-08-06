@@ -116,7 +116,7 @@ static void feed(tymsat_session_t *s, const char *text)
 
 /* username, password, default_host, ignore_host */
 static const tymsat_user_t USERS[] = {
-    { "DAVID",       "secret", "3020", 0 },  /* ordinary: password + home */
+    { "ALICE",       "secret", "3020", 0 },  /* ordinary: password + home */
     { "INFORMATION", "",       "3020", 1 },  /* No Password + Ignore Host */
     { "MULTI",       "pw",     "",     0 }   /* no home: must name a host */
 };
@@ -320,10 +320,10 @@ static void test_username_then_password_prompt(void)
     start_session(&s, &cfg);
     reset_io();
 
-    feed(&s, "DAVID\r");
+    feed(&s, "ALICE\r");
     ASSERT_EQ_INT(s.state, TYMSAT_STATE_AWAITING_PASSWORD);
     ASSERT_TRUE(dte_has("password:"));
-    ASSERT_EQ_INT(strcmp(s.username, "DAVID"), 0);
+    ASSERT_EQ_INT(strcmp(s.username, "ALICE"), 0);
 }
 
 /* The TYMSAT echoes input unless half duplex was selected; [HTU82:110]
@@ -336,8 +336,8 @@ static void test_username_is_echoed(void)
 
     start_session(&s, &cfg);
     reset_io();
-    feed(&s, "DAVID");
-    ASSERT_TRUE(dte_has("DAVID"));
+    feed(&s, "ALICE");
+    ASSERT_TRUE(dte_has("ALICE"));
 }
 
 /* [HTU82:47] "Passwords are not displayed at full-duplex terminals for
@@ -348,7 +348,7 @@ static void test_password_is_not_echoed(void)
     tymsat_config_t  cfg = make_cfg();
 
     start_session(&s, &cfg);
-    feed(&s, "DAVID\r");
+    feed(&s, "ALICE\r");
     reset_io();
 
     feed(&s, "secret");
@@ -368,7 +368,7 @@ static void test_successful_login_emits_call_connected(void)
     ASSERT_EQ_INT(TYMSAT_ACCEPT_CALL_CONNECTED, 0);   /* memset default */
 
     start_session(&s, &cfg);
-    feed(&s, "DAVID\r");
+    feed(&s, "ALICE\r");
     reset_io();
     feed(&s, "secret\r");
 
@@ -386,7 +386,7 @@ static void test_successful_login_emits_terse_acceptance(void)
 
     cfg.accept_msg = TYMSAT_ACCEPT_TERSE;
     start_session(&s, &cfg);
-    feed(&s, "DAVID\r");
+    feed(&s, "ALICE\r");
     reset_io();
     feed(&s, "secret\r");
 
@@ -404,7 +404,7 @@ static void test_successful_login_emits_verbose_acceptance(void)
 
     cfg.accept_msg = TYMSAT_ACCEPT_VERBOSE;
     start_session(&s, &cfg);
-    feed(&s, "DAVID\r");
+    feed(&s, "ALICE\r");
     reset_io();
     feed(&s, "secret\r");
 
@@ -422,7 +422,7 @@ static void test_call_connected_honours_uppercase(void)
 
     cfg.uppercase_messages = 1;
     start_session(&s, &cfg);
-    feed(&s, "DAVID\r");
+    feed(&s, "ALICE\r");
     reset_io();
     feed(&s, "secret\r");
 
@@ -521,7 +521,7 @@ static void test_bare_cr_at_password_yields_password_message(void)
     tymsat_config_t  cfg = make_cfg();
 
     start_session(&s, &cfg);
-    feed(&s, "DAVID\r");
+    feed(&s, "ALICE\r");
     reset_io();
     feed(&s, "\r");
 
@@ -555,7 +555,7 @@ static void test_wrong_password_reprompts_for_password(void)
     tymsat_config_t  cfg = make_cfg();
 
     start_session(&s, &cfg);
-    feed(&s, "DAVID\r");
+    feed(&s, "ALICE\r");
     reset_io();
     feed(&s, "wrong\r");
 
@@ -582,9 +582,9 @@ static void test_control_characters_are_stripped_and_recorded(void)
     tymsat_config_t  cfg = make_cfg();
 
     start_session(&s, &cfg);
-    feed(&s, "\022\030DAVID\r");   /* ^R ^X DAVID CR */
+    feed(&s, "\022\030ALICE\r");   /* ^R ^X ALICE CR */
 
-    ASSERT_EQ_INT(strcmp(s.username, "DAVID"), 0);
+    ASSERT_EQ_INT(strcmp(s.username, "ALICE"), 0);
     ASSERT_TRUE((s.ctl_flags & TYMSAT_CTL_TERM_FLOW) != 0);
     ASSERT_TRUE((s.ctl_flags & TYMSAT_CTL_NET_FLOW) != 0);
     ASSERT_TRUE((s.ctl_flags & TYMSAT_CTL_EVEN_PARITY) == 0);
@@ -599,10 +599,10 @@ static void test_half_duplex_suppresses_echo(void)
 
     start_session(&s, &cfg);
     reset_io();
-    feed(&s, "\010DAVID");        /* ^H DAVID */
+    feed(&s, "\010ALICE");        /* ^H ALICE */
 
     ASSERT_TRUE((s.ctl_flags & TYMSAT_CTL_HALF_DUPLEX) != 0);
-    ASSERT_TRUE(!dte_has("DAVID"));
+    ASSERT_TRUE(!dte_has("ALICE"));
 }
 
 /* [HTU82:111] "Control P - Provides even parity for computer output." */
@@ -612,9 +612,9 @@ static void test_even_parity_flag(void)
     tymsat_config_t  cfg = make_cfg();
 
     start_session(&s, &cfg);
-    feed(&s, "\020DAVID\r");      /* ^P DAVID CR */
+    feed(&s, "\020ALICE\r");      /* ^P ALICE CR */
     ASSERT_TRUE((s.ctl_flags & TYMSAT_CTL_EVEN_PARITY) != 0);
-    ASSERT_EQ_INT(strcmp(s.username, "DAVID"), 0);
+    ASSERT_EQ_INT(strcmp(s.username, "ALICE"), 0);
 }
 
 /* --- data transfer ---------------------------------------------------- */
@@ -776,7 +776,7 @@ static void test_timer_resets_on_field_entry(void)
 
     start_session(&s, &cfg);
     tymsat_tick(&s, TYMSAT_LOGIN_TIMEOUT_20THS - 1);
-    feed(&s, "DAVID\r");          /* progress: username accepted */
+    feed(&s, "ALICE\r");          /* progress: username accepted */
     reset_io();
 
     ASSERT_EQ_INT(tymsat_tick(&s, 2), 0);
@@ -802,7 +802,7 @@ static void test_pending_timer_tracks_tick_states(void)
     ASSERT_EQ_INT(s.state, TYMSAT_STATE_AWAITING_LOGIN);
     ASSERT_EQ_INT(tymsat_has_pending_timer(&s), 1);
 
-    feed(&s, "DAVID\r");
+    feed(&s, "ALICE\r");
     ASSERT_EQ_INT(s.state, TYMSAT_STATE_AWAITING_PASSWORD);
     ASSERT_EQ_INT(tymsat_has_pending_timer(&s), 1);
 
@@ -860,7 +860,7 @@ static void test_path_delay_defers_the_call(void)
 
     cfg.path_delay_20ths = 20;            /* 1000 ms */
     start_session(&s, &cfg);
-    feed(&s, "DAVID\r");
+    feed(&s, "ALICE\r");
     reset_io();
     feed(&s, "secret\r");
 
@@ -881,7 +881,7 @@ static void test_path_delay_expires_then_connects(void)
 
     cfg.path_delay_20ths = 20;
     start_session(&s, &cfg);
-    feed(&s, "DAVID\r");
+    feed(&s, "ALICE\r");
     feed(&s, "secret\r");
     reset_io();
 
@@ -905,7 +905,7 @@ static void test_path_delay_reports_pending_timer(void)
 
     cfg.path_delay_20ths = 20;
     start_session(&s, &cfg);
-    feed(&s, "DAVID\r");
+    feed(&s, "ALICE\r");
     feed(&s, "secret\r");
 
     ASSERT_EQ_INT(s.state, TYMSAT_STATE_PATH_DELAY);
@@ -920,7 +920,7 @@ static void test_path_delay_preserves_typeahead(void)
 
     cfg.path_delay_20ths = 20;
     start_session(&s, &cfg);
-    feed(&s, "DAVID\r");
+    feed(&s, "ALICE\r");
     feed(&s, "secret\r");
     reset_io();
 
@@ -940,7 +940,7 @@ static void test_path_delay_zero_connects_immediately(void)
 
     cfg.path_delay_20ths = 0;
     start_session(&s, &cfg);
-    feed(&s, "DAVID\r");
+    feed(&s, "ALICE\r");
     reset_io();
     feed(&s, "secret\r");
 
@@ -971,7 +971,7 @@ static void test_path_delay_default_is_off(void)
     cfg.path_delay_20ths = TYMSAT_DEFAULT_PATH_DELAY_20THS;
 
     start_session(&s, &cfg);
-    feed(&s, "DAVID\r");
+    feed(&s, "ALICE\r");
     reset_io();
     feed(&s, "secret\r");
     ASSERT_EQ_INT(s.state, TYMSAT_STATE_DATA_TRANSFER);

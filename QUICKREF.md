@@ -91,14 +91,14 @@ Place a call to `12345`:
 12345
 ```
 
-With NUI `david` (required when `--auth` is on):
+With NUI `alice` (required when `--auth` is on):
 ```
-Ndavid-12345
+Nalice-12345
 ```
 
 Multiple facilities, comma-separated, dash before address:
 ```
-Ndavid,R,G01-12345
+Nalice,R,G01-12345
 ```
 
 Facility letters (Table 4/X.28):
@@ -186,7 +186,7 @@ Other: `FREE`, `ENGAGED`, `COM`, `ERR`, `PAR p:v, …`, `PAGE`, `CLR CONF`.
 ```
 # Comments and blank lines ignored. One NUI per line.
 # Max 64 entries, max 31 chars each.
-david
+alice
 alice
 bob
 ```
@@ -224,7 +224,7 @@ From another terminal:
 $ telnet localhost 30000
 <CR>                          # complete handshake
 PADAWAN-LITE v1.6.0
-Ndavid-30001<CR>              # call address 30001 with NUI=david
+Nalice-30001<CR>              # call address 30001 with NUI=alice
 COM                           # connected
 ... data flows ...
 <Ctrl-P>                      # PAD recall (if param 1 = 1)

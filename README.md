@@ -146,7 +146,7 @@ Throttle: 120 bytes/sec per direction per session.
 ```
 
 Users then `telnet host 30000`, complete the X.28 handshake, and
-place calls like `Ndavid-30001<CR>` (per-call NUI) or `ID david<CR>`
+place calls like `Nalice-30001<CR>` (per-call NUI) or `ID alice<CR>`
 followed by `30001<CR>` (session-level NUI).
 
 ## Command-line flags
@@ -202,7 +202,7 @@ accept call-connected            # "call connected" | ";" (terse) | "host is onl
 path-delay 1000                  # network-path emulation, ms before the host call (built-in default 0)
 
 host 3020 127.0.0.1 64001        # host number -> TCP endpoint
-user DAVID secret 3020           # name, password, home destination
+user ALICE secret 3020           # name, password, home destination
 user INFORMATION - 3020 ignore-host   # "-" password = No Password option
 ```
 
@@ -301,7 +301,7 @@ ok 70/70
 
 ## Credits
 
-- Natural Intelligence: David Hinson
+- Natural Intelligence: Alice Hinson
 - Artificial Intelligence: Claude Code
 
 ## Contributing

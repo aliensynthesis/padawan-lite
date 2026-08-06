@@ -306,10 +306,10 @@ static void test_parse_selection_cud_with_facility_block(void)
 {
     x28_command_t cmd;
     /* Facility block + address + CUD all in one selection signal. */
-    ASSERT_EQ_INT(parse("Ndavid,R-30001DLOGIN", &cmd), X28_PARSE_OK);
+    ASSERT_EQ_INT(parse("Nalice,R-30001DLOGIN", &cmd), X28_PARSE_OK);
     ASSERT_EQ_INT(cmd.facility_count, 2);
     ASSERT_EQ_INT(cmd.facilities[0].code, 'N');
-    ASSERT_TRUE(strcmp(cmd.facilities[0].arg, "david") == 0);
+    ASSERT_TRUE(strcmp(cmd.facilities[0].arg, "alice") == 0);
     ASSERT_EQ_INT(cmd.facilities[1].code, 'R');
     ASSERT_TRUE(strcmp(cmd.address, "30001") == 0);
     ASSERT_EQ_INT(cmd.cud_type, 'D');

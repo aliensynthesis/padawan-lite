@@ -640,9 +640,9 @@ static void test_id_prompt_captures_next_input_as_nui(void)
     memset(&io, 0, sizeof(io));
     pad_init(&pad, X3_PROFILE_SIMPLE, cb_dte, cb_remote, &io);
     feed(&pad, "ID\r");
-    feed(&pad, "david\r");
+    feed(&pad, "alice\r");
     ASSERT_EQ_INT(pad.awaiting_nui, 0);
-    ASSERT_EQ_INT(strcmp(pad.session_nui, "david"), 0);
+    ASSERT_EQ_INT(strcmp(pad.session_nui, "alice"), 0);
 }
 
 static void test_id_prompt_empty_answer_leaves_nui_unchanged(void)

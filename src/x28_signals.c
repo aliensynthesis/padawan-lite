@@ -935,7 +935,7 @@ int32 x28_format_help(const char *subject, uint8 *buf, uint32 buf_size)
                "params via X.29.";
     } else if (subject_is(subject, "CALL") || subject_is(subject, "SELECTION")) {
         body = "<address> or CALL <address> - place a call. Optionally "
-               "prefix with facilities (e.g. Ndavid-30001) or trail "
+               "prefix with facilities (e.g. Nalice-30001) or trail "
                "with call user data (e.g. 30001DLOGIN).";
     } else if (subject_is(subject, "HELP")) {
         body = "HELP [<subject>] - show this help. Subject can be "
