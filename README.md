@@ -163,6 +163,7 @@ followed by `30001<CR>` (session-level NUI).
 | `--trace-line-mode`           | Consolidate CLIENT entries by CR (implies `--trace`)              |
 | `--pcp-port PORT`             | PAD Control Protocol listener on `127.0.0.1:PORT` (`0` = off)     |
 | `--emulate NAME`              | PAD personality: `default` (X.28), `telenet`, `telenet-91`; or `tymnet` for the stand-alone TYMSAT front end |
+| `--path-delay MS`             | Network-path emulation delay before the host call (`--emulate tymnet` only; default `1000`, `0` = off) |
 | `--ttype-claim NAME`          | Default terminal-type claim to hosts (`vt52`/`vt100`/`vt102`/`vt220`/`xterm`/`dumb`/`unknown`/`ansi`; default `vt100`) |
 | `--d1 NAME`                   | term_id the Sprint-era Telenet code `D1` resolves to (same name set as `--ttype-claim`; default `vt100`) |
 | `-h`, `--help`                | Show usage                                                        |

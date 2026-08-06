@@ -53,6 +53,19 @@ adheres to [Semantic Versioning](https://semver.org/).
   the full reasoning, including why the pamphlet's semicolon is the
   weakest-attested of the three.
 
+- **Network-path emulation (`--path-delay MS`, default 1000).** A pause
+  inserted after the login is accepted and *before* the call to the host
+  is placed, standing in for the time a real TYMNET spent calculating a
+  route and threading a "needle" node by node across the network before
+  the destination node reached the host at all (*Network Products
+  Concepts and Facilities*, p. 4-14). Placing it before the call means
+  the lag being modelled sits behind the PAD rather than at the host,
+  and no host output can be missed while it runs — there is no
+  connection yet. Type-ahead during the pause is preserved and replayed.
+  `0` disables it. Applies to `--emulate tymnet` only; the PAD has the
+  same seam available but no delay is wired in yet, and passing the flag
+  without `--emulate tymnet` warns rather than silently doing nothing.
+
 - **`tymnet.cfg`,** the Tymfile analogue: node/port identity, message
   case, acceptance form, host-number routes, and the user table.
   Everything is fixed at load time, mirroring a real TYMSAT's

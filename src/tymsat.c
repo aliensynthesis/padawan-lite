@@ -306,6 +306,7 @@ static void reset_login_state(tymsat_session_t *s)
     s->password_len   = 0;
     s->user           = NULL;
     s->login_ticks    = 0;
+    s->path_ticks     = 0;
     s->ctl_flags      = 0;
     s->pending_len    = 0;
     s->host_flow_held = 0;
@@ -425,8 +426,12 @@ static void begin_circuit(tymsat_session_t *s)
 {
     int rc;
 
+    /* NB: pending[] is NOT cleared here. Call setup may have been
+       preceded by TYMSAT_STATE_PATH_DELAY, during which the user can
+       type ahead; those bytes must survive into the circuit. The
+       buffer is cleared once in resolve_destination_and_call, before
+       either path is taken. */
     s->state = TYMSAT_STATE_CIRCUIT_BUILD;
-    s->pending_len = 0;
 
     rc = x25_call(&s->call, s->host_number);
     if (rc == X25_OK) {
@@ -478,6 +483,23 @@ static void resolve_destination_and_call(tymsat_session_t *s)
             return;
         }
         strcpy(s->host_number, u->default_host);
+    }
+
+    /* Type-ahead accumulated up to this point belongs to the login
+       dialogue, not the session; discard it once, here, so that both
+       the delayed and undelayed paths start the circuit clean. */
+    s->pending_len = 0;
+
+    /* Network-path emulation: stand in for the time a real TYMNET
+       spent routing and threading a needle across the network before
+       the destination node reached the host ([NPCF85 p. 4-14]). The
+       pause goes HERE, before the call, so the lag being modelled sits
+       behind the PAD rather than at the host -- and so no host output
+       can be lost while it runs, there being no connection yet. */
+    if (s->cfg->path_delay_20ths > 0) {
+        s->path_ticks = (uint32)s->cfg->path_delay_20ths;
+        s->state      = TYMSAT_STATE_PATH_DELAY;
+        return;
     }
 
     begin_circuit(s);
@@ -737,9 +759,10 @@ void tymsat_input_dte(tymsat_session_t *s, const uint8 *data, uint32 len)
         case TYMSAT_STATE_AWAITING_PASSWORD:
             feed_awaiting_password(s, data[i]);
             break;
+        case TYMSAT_STATE_PATH_DELAY:
         case TYMSAT_STATE_CIRCUIT_BUILD:
-            /* Type-ahead during circuit build is preserved and
-               replayed once the host answers. */
+            /* Type-ahead during path emulation and circuit build is
+               preserved and replayed once the host answers. */
             if (s->pending_len < TYMSAT_PENDING_SIZE) {
                 s->pending[s->pending_len++] = data[i];
             }
@@ -774,6 +797,18 @@ int tymsat_tick(tymsat_session_t *s, uint32 elapsed_20ths)
 {
     if (s == NULL) return 0;
 
+    /* Network-path emulation. When it expires the call is placed; the
+       acknowledgement follows from begin_circuit as usual. */
+    if (s->state == TYMSAT_STATE_PATH_DELAY) {
+        if (s->path_ticks > elapsed_20ths) {
+            s->path_ticks -= elapsed_20ths;
+            return 0;
+        }
+        s->path_ticks = 0;
+        begin_circuit(s);
+        return 0;
+    }
+
     /* [HTU82:262] starts the two-minute window at the terminal
        identifier entry, so it covers the login and password states
        only -- not the wait for the identifier itself, and not an
@@ -799,7 +834,8 @@ int tymsat_has_pending_timer(const tymsat_session_t *s)
        states tymsat_tick acts on. Keep this in step with tymsat_tick's
        own state test. */
     return (s->state == TYMSAT_STATE_AWAITING_LOGIN ||
-            s->state == TYMSAT_STATE_AWAITING_PASSWORD);
+            s->state == TYMSAT_STATE_AWAITING_PASSWORD ||
+            s->state == TYMSAT_STATE_PATH_DELAY);
 }
 
 void tymsat_circuit_connected(tymsat_session_t *s)

@@ -169,6 +169,18 @@ static const personality_t *g_personality = NULL;  /* NULL = default */
    include/tymsat.h for why the TYMSAT cannot be a PAD personality. */
 #define MAX_TYMSAT_USERS 64
 static int             g_tymnet_mode = 0;
+
+/* Network-path emulation delay in milliseconds (--path-delay). Stands
+   in for the time a real TYMNET spent routing and threading a needle
+   across the network before the destination node reached the host;
+   applied after login is accepted and BEFORE the call is placed, so
+   the lag sits behind the PAD rather than at the host.
+
+   TYMNET-only for now. The X.28 PAD has the same seam available (its
+   SELECTION dispatch calls x25_call from one place) but no equivalent
+   delay is wired in yet. */
+static int             g_path_delay_ms = TYMSAT_DEFAULT_PATH_DELAY_MS;
+static int             g_path_delay_set = 0;   /* did the user pass it? */
 static tymsat_config_t g_tymsat_cfg;
 static tymsat_user_t   g_tymsat_users[MAX_TYMSAT_USERS];
 static uint16          g_tymsat_user_count = 0;
@@ -1153,7 +1165,11 @@ static void usage(const char *argv0)
         "      --emulate <name>     PAD personality"
                                  " (default, telenet, telenet-91)\n"
         "                           or 'tymnet' for the stand-alone"
-                                 " TYMSAT front end\n");
+                                 " TYMSAT front end\n"
+        "      --path-delay <ms>    network-path emulation delay before"
+                                 " the host call\n"
+        "                           (--emulate tymnet only; default"
+                                 " 1000, 0 = off)\n");
     fprintf(stderr,
         "      --ttype-claim <name> default terminal-type claim"
                                  " (vt52, vt100, vt102, vt220, xterm,\n"
@@ -1256,6 +1272,15 @@ int main(int argc, char **argv)
                         argv[ai]);
                 return 2;
             }
+        } else if (strcmp(argv[ai], "--path-delay") == 0) {
+            if (++ai >= argc) { usage(argv[0]); return 2; }
+            g_path_delay_ms  = atoi(argv[ai]);
+            g_path_delay_set = 1;
+            if (g_path_delay_ms < 0 || g_path_delay_ms > 60000) {
+                fprintf(stderr,
+                        "--path-delay must be 0..60000 ms\n");
+                return 2;
+            }
         } else if (strcmp(argv[ai], "--ttype-claim") == 0) {
             if (++ai >= argc) { usage(argv[0]); return 2; }
             if (x25_bridge_set_ttype_claim(argv[ai]) != 0) {
@@ -1313,6 +1338,18 @@ int main(int argc, char **argv)
                                 "%s: %s\n", map_file, strerror(errno));
             }
         }
+        /* Milliseconds -> twentieths, rounding up so a sub-tick
+           request still yields one tick rather than silently
+           disabling the delay. The main loop ticks at 20 Hz, so 50 ms
+           is the finest granularity available. */
+        g_tymsat_cfg.path_delay_20ths =
+            (uint16)((g_path_delay_ms + 49) / 50);
+        if (g_path_delay_ms > 0) {
+            fprintf(stderr,
+                    "TYMSAT network-path delay: %d ms (%u ticks)\n",
+                    g_path_delay_ms,
+                    (unsigned)g_tymsat_cfg.path_delay_20ths);
+        }
         if (g_tymsat_cfg.user_count == 0) {
             fprintf(stderr,
                     "warning: no TYMSAT users configured%s -- every login "
@@ -1321,7 +1358,17 @@ int main(int argc, char **argv)
                     "-c/--config.\n",
                     map_file == NULL ? " (no -c/--config given)" : "");
         }
-    } else if (map_file != NULL) {
+    } else {
+        if (g_path_delay_set) {
+            /* Scoped to the TYMSAT front end for now; the PAD has the
+               same seam but no delay wired in yet. Say so rather than
+               silently ignoring the flag. */
+            fprintf(stderr,
+                    "warning: --path-delay applies only to "
+                    "--emulate tymnet; ignoring.\n");
+        }
+    }
+    if (!g_tymnet_mode && map_file != NULL) {
         if (x25_bridge_load_map(map_file) != 0) {
             fprintf(stderr, "warning: failed to load address map %s: %s\n",
                     map_file, strerror(errno));
@@ -1456,11 +1503,10 @@ int main(int argc, char **argv)
                 }
             }
             if (g_sessions[i].kind == BRIDGE_SESSION_TYMSAT) {
-                /* A TYMSAT session counting down the two-minute login
-                   limit is waiting on elapsed time, not on any
-                   descriptor. Without this the poll below blocks on -1
-                   and tymsat_tick never runs, so the limit never
-                   fires for an otherwise idle session. */
+                /* A TYMSAT session counting down (the two-minute login
+                   limit, and later the path delay) is waiting on
+                   elapsed time, not on any descriptor. Without this the
+                   poll below blocks on -1 and tymsat_tick never runs. */
                 if (tymsat_has_pending_timer(&g_sessions[i].tymsat)) {
                     any_ticking = 1;
                 }

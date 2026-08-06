@@ -847,6 +847,117 @@ static void test_pending_timer_agrees_with_tick(void)
     }
 }
 
+/* --- network-path emulation ------------------------------------------- */
+
+/* The delay is applied AFTER credentials are accepted and BEFORE the
+   call is placed, standing in for the routing and needle-threading a
+   real TYMNET did before the destination node reached the host
+   ([NPCF85 p. 4-14]). While it runs, no call exists. */
+static void test_path_delay_defers_the_call(void)
+{
+    tymsat_session_t s;
+    tymsat_config_t  cfg = make_cfg();
+
+    cfg.path_delay_20ths = 20;            /* 1000 ms */
+    start_session(&s, &cfg);
+    feed(&s, "DAVID\r");
+    reset_io();
+    feed(&s, "secret\r");
+
+    /* Credentials accepted, but we are waiting on the network. */
+    ASSERT_EQ_INT(s.state, TYMSAT_STATE_PATH_DELAY);
+    /* The x25 stub stamps call_id on call; an unplaced call leaves it
+       at the value tymsat_init zeroed. */
+    ASSERT_EQ_INT(s.call.call_id, 0);
+    ASSERT_TRUE(!dte_has("call connected"));
+    /* Destination was resolved before the wait began. */
+    ASSERT_EQ_INT(strcmp(s.host_number, "3020"), 0);
+}
+
+static void test_path_delay_expires_then_connects(void)
+{
+    tymsat_session_t s;
+    tymsat_config_t  cfg = make_cfg();
+
+    cfg.path_delay_20ths = 20;
+    start_session(&s, &cfg);
+    feed(&s, "DAVID\r");
+    feed(&s, "secret\r");
+    reset_io();
+
+    /* One tick short: still waiting, still no call. */
+    ASSERT_EQ_INT(tymsat_tick(&s, 19), 0);
+    ASSERT_EQ_INT(s.state, TYMSAT_STATE_PATH_DELAY);
+    ASSERT_EQ_INT(s.call.call_id, 0);
+    ASSERT_TRUE(!dte_has("call connected"));
+
+    /* Crossing it places the call and acknowledges. */
+    ASSERT_EQ_INT(tymsat_tick(&s, 1), 0);
+    ASSERT_EQ_INT(s.state, TYMSAT_STATE_DATA_TRANSFER);
+    ASSERT_TRUE(dte_has("call connected"));
+}
+
+/* A driver must keep ticking through the delay or it never expires. */
+static void test_path_delay_reports_pending_timer(void)
+{
+    tymsat_session_t s;
+    tymsat_config_t  cfg = make_cfg();
+
+    cfg.path_delay_20ths = 20;
+    start_session(&s, &cfg);
+    feed(&s, "DAVID\r");
+    feed(&s, "secret\r");
+
+    ASSERT_EQ_INT(s.state, TYMSAT_STATE_PATH_DELAY);
+    ASSERT_EQ_INT(tymsat_has_pending_timer(&s), 1);
+}
+
+/* Type-ahead during the wait survives, exactly as during circuit build. */
+static void test_path_delay_preserves_typeahead(void)
+{
+    tymsat_session_t s;
+    tymsat_config_t  cfg = make_cfg();
+
+    cfg.path_delay_20ths = 20;
+    start_session(&s, &cfg);
+    feed(&s, "DAVID\r");
+    feed(&s, "secret\r");
+    reset_io();
+
+    feed(&s, "typed during the wait");
+    ASSERT_EQ_INT(g_remote_len, 0);       /* held, no circuit yet */
+
+    (void)tymsat_tick(&s, 20);
+    ASSERT_EQ_INT(s.state, TYMSAT_STATE_DATA_TRANSFER);
+    ASSERT_TRUE(remote_has("typed during the wait"));
+}
+
+/* Zero disables it: the call is placed inline, as before the feature. */
+static void test_path_delay_zero_connects_immediately(void)
+{
+    tymsat_session_t s;
+    tymsat_config_t  cfg = make_cfg();
+
+    cfg.path_delay_20ths = 0;
+    start_session(&s, &cfg);
+    feed(&s, "DAVID\r");
+    reset_io();
+    feed(&s, "secret\r");
+
+    ASSERT_EQ_INT(s.state, TYMSAT_STATE_DATA_TRANSFER);
+    ASSERT_TRUE(dte_has("call connected"));
+}
+
+/* The documented default is 1000 ms; the driver converts at 20 Hz. */
+static void test_path_delay_default_constants(void)
+{
+    ASSERT_EQ_INT(TYMSAT_DEFAULT_PATH_DELAY_MS, 1000);
+    ASSERT_EQ_INT(TYMSAT_DEFAULT_PATH_DELAY_20THS, 20);
+    /* 1000 ms at 50 ms per tick. */
+    ASSERT_EQ_INT((TYMSAT_DEFAULT_PATH_DELAY_MS + 49) / 50,
+                  TYMSAT_DEFAULT_PATH_DELAY_20THS);
+}
+
 /* --- message catalogue ------------------------------------------------ */
 
 /* Spot-check the catalogue against [HTU82:196-289]. */
@@ -958,6 +1069,12 @@ int main(void)
     test_timer_does_not_fire_during_session();
     test_timer_resets_on_field_entry();
 
+    test_path_delay_defers_the_call();
+    test_path_delay_expires_then_connects();
+    test_path_delay_reports_pending_timer();
+    test_path_delay_preserves_typeahead();
+    test_path_delay_zero_connects_immediately();
+    test_path_delay_default_constants();
     test_pending_timer_tracks_tick_states();
     test_pending_timer_agrees_with_tick();
     test_message_text_matches_pamphlet();

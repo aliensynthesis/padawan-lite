@@ -1567,3 +1567,48 @@ bridge/main.c - Sprint-era Telenet TERMINAL= code recognition.
   one asserts the predicate agrees with tymsat_tick for every state --
   so a future state with a timer cannot be added without the predicate
   being updated to match.
+
+[2026-08-06] src/tymsat.c - network-path emulation delay (--path-delay)
+  A configurable pause, default 1000 ms, inserted after the login is
+  accepted and BEFORE the call to the host is placed.
+
+  What it models. On a real TYMNET the Supervisor validated the login,
+  calculated a least-cost route, and sent a "needle" that threaded node
+  by node across the network, each node building its part of the
+  circuit, before the destination node reached the host at all
+  ([NPCF85 p. 4-14]). A user therefore saw a pause between submitting
+  credentials and any acknowledgement, and that pause was network
+  transit, not host latency.
+
+  Why BEFORE the call, not after it. Placing the delay ahead of
+  x25_call puts the modelled lag behind the PAD, inside the network,
+  which is where it actually was. It also removes a failure mode: with
+  the delay after the connection, a host that greets immediately would
+  have its banner arriving while the session was still in a
+  pre-DATA_TRANSFER state, where tymsat_input_remote discards it.
+  Delaying before the call means no connection exists during the wait,
+  so there is nothing to lose.
+
+  Implementation. TYMSAT_STATE_PATH_DELAY sits between login
+  acceptance and begin_circuit; tymsat_tick counts it down and places
+  the call on expiry. It is reported by tymsat_has_pending_timer, so
+  the driver keeps polling at 50 ms and the countdown actually
+  advances -- see the [2026-08-06] any_ticking entry above for what
+  happens when a timed state is not reported. Type-ahead during the
+  wait accumulates in pending[] and is replayed once the circuit is up;
+  pending[] is cleared once at login acceptance rather than in
+  begin_circuit, which would otherwise discard it.
+
+  Granularity is 50 ms, the main loop's tick period. --path-delay takes
+  milliseconds and rounds up, so a sub-tick request yields one tick
+  rather than silently disabling the delay.
+
+  Scope: TYMNET only. The X.28 PAD reaches x25_call from its SELECTION
+  dispatch and could take the same treatment, but no delay is wired in
+  for it; passing --path-delay without --emulate tymnet warns.
+
+  VERIFY: no source quantifies real circuit-build time -- it varied
+  with path length, and neither document gives a figure. 1000 ms is a
+  plausible default, not a documented one. A jittered delay would model
+  path-length variance better; deliberately not done, so tests stay
+  deterministic.

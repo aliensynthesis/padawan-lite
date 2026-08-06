@@ -149,6 +149,11 @@
    match pad_tick's convention: 120 s * 20 = 2400. */
 #define TYMSAT_LOGIN_TIMEOUT_20THS  2400UL
 
+/* Default network-path emulation delay: 1000 ms = 20 twentieths.
+   See tymsat_config_t.path_delay_20ths. */
+#define TYMSAT_DEFAULT_PATH_DELAY_MS     1000
+#define TYMSAT_DEFAULT_PATH_DELAY_20THS  20
+
 /* Session states.
    Derived from the login procedure in [HTU82:24-61] and the five
    elements of login information in [NPCF85 p. 5-8]. Unlike
@@ -175,6 +180,17 @@ typedef enum {
        terminals for security reasons." Skipped entirely when the
        configured user entry carries no password. */
     TYMSAT_STATE_AWAITING_PASSWORD = 3,
+
+    /* Network-path emulation. Credentials are accepted and the
+       destination is resolved, but the call has NOT been placed yet:
+       we are standing in for the time a real TYMNET took to thread a
+       needle through the network before anything reached the host.
+
+       Placed BEFORE the call deliberately -- the lag being modelled is
+       behind the PAD, inside the network, so during this state no host
+       connection exists and there is nothing arriving to lose. DTE
+       bytes are buffered in pending[] exactly as in CIRCUIT_BUILD. */
+    TYMSAT_STATE_PATH_DELAY      = 7,
 
     /* Circuit build in progress (x25_call returned X25_IN_PROGRESS).
        DTE bytes arriving here are buffered in pending[]. */
@@ -445,6 +461,27 @@ typedef struct {
        unknown. We model it as a per-installation Tymfile setting. */
     uint8 accept_msg;
 
+    /* Network-path emulation delay, in twentieths of a second, applied
+       after the login is accepted and BEFORE the call is placed.
+
+       Models the lag behind the PAD rather than at the host: on a real
+       TYMNET the Supervisor calculated a route and sent a "needle"
+       that threaded node by node across the network, each node
+       building its part of the circuit, before the destination node
+       reached the host at all (Network Products Concepts and
+       Facilities, p. 4-14). A user saw a pause between submitting
+       credentials and any acknowledgement.
+
+       0 disables the delay. Set from --path-delay <ms>; the driver
+       converts, rounding up to the tick granularity. Because the
+       delay is spent before any connection exists, no host output can
+       be missed during it.
+
+       VERIFY: no source quantifies real circuit-build time; it varied
+       with path length. The default is a plausible stand-in, not a
+       documented figure. */
+    uint16 path_delay_20ths;
+
     /* Configured users. */
     const tymsat_user_t *users;
     uint16               user_count;
@@ -489,7 +526,12 @@ typedef struct tymsat_session {
        reached -- the two-minute limit is a login limit only. */
     uint32 login_ticks;
 
-    /* DTE bytes received during CIRCUIT_BUILD, replayed on connect. */
+    /* Twentieths remaining in TYMSAT_STATE_PATH_DELAY. Counted down by
+       tymsat_tick; on reaching zero the call is placed. */
+    uint32 path_ticks;
+
+    /* DTE bytes received during PATH_DELAY / CIRCUIT_BUILD, replayed
+       on connect. */
     uint8  pending[TYMSAT_PENDING_SIZE];
     uint32 pending_len;
 

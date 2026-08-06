@@ -25,6 +25,11 @@ padawan-lite [-c FILE] [-l PORT] [-a FILE] [-t] [-b BPS]
 | `--ttype-claim NAME`       | Default terminal-type claim to hosts (`vt52`/`vt100`/`vt102`/`vt220`/`xterm`/`dumb`/`unknown`/`ansi`; default `vt100`). A non-empty Telenet `TERMINAL=` response overrides per-session. Drives both Telnet TTYPE subnegotiation and the inline DEC DA1 / VT52-Identify auto-responder. `dumb`/`unknown` advertise the name via TTYPE but **do not** auto-answer inline DA queries; `ansi` mirrors VT100's DA1 so 8-bit-PC operators (via `--d1 ansi`) still land on a real driver. |
 | `--d1 NAME`                | The term_id name the Sprint-era Telenet `TERMINAL=` code **`D1`** resolves to (same name set as `--ttype-claim`; default `vt100`). `D1` covered everything from DEC VT100 to Apple II / Commodore PET / Atari, so the canonical mapping depends on the operator's setup. A-class and B-class codes (`A1`–`A9`, `B1`/`B3`/`B4`/`B5`) always resolve to `DUMB` and are not switchable. See `QUICKREF_TELENET.md` for the full code mapping. |
 
+`--path-delay <ms>` inserts a pause after the login is accepted and
+before the call to the host is placed, standing in for the time a real
+TYMNET spent routing and threading a needle across the network. Default
+1000 ms; `0` disables it. TYMNET only for now.
+
 `--emulate tymnet` replaces the PAD entirely with the stand-alone
 TYMSAT front end. None of the X.28 commands, X.3 parameters or PAD
 recall below apply to it — a real TYMSAT had no command surface at all.
