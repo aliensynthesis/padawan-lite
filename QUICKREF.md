@@ -21,9 +21,16 @@ padawan-lite [-c FILE] [-l PORT] [-a FILE] [-t] [-b BPS]
 | `--trace-prefix PREFIX`    | Override `--trace` filename prefix (implies `--trace`)   |
 | `--trace-line-mode`        | CLIENT entries flush on CR; SERVICE pairs with each line |
 | `--pcp-port PORT`          | PAD Control Protocol listener on `127.0.0.1:PORT`        |
-| `--emulate NAME`           | PAD personality: `default` (X.28), `telenet`             |
+| `--emulate NAME`           | PAD personality: `default` (X.28), `telenet`, `telenet-91`; or `tymnet` (stand-alone TYMSAT front end, not a personality) |
 | `--ttype-claim NAME`       | Default terminal-type claim to hosts (`vt52`/`vt100`/`vt102`/`vt220`/`xterm`/`dumb`/`unknown`/`ansi`; default `vt100`). A non-empty Telenet `TERMINAL=` response overrides per-session. Drives both Telnet TTYPE subnegotiation and the inline DEC DA1 / VT52-Identify auto-responder. `dumb`/`unknown` advertise the name via TTYPE but **do not** auto-answer inline DA queries; `ansi` mirrors VT100's DA1 so 8-bit-PC operators (via `--d1 ansi`) still land on a real driver. |
 | `--d1 NAME`                | The term_id name the Sprint-era Telenet `TERMINAL=` code **`D1`** resolves to (same name set as `--ttype-claim`; default `vt100`). `D1` covered everything from DEC VT100 to Apple II / Commodore PET / Atari, so the canonical mapping depends on the operator's setup. A-class and B-class codes (`A1`–`A9`, `B1`/`B3`/`B4`/`B5`) always resolve to `DUMB` and are not switchable. See `QUICKREF_TELENET.md` for the full code mapping. |
+
+`--emulate tymnet` replaces the PAD entirely with the stand-alone
+TYMSAT front end. None of the X.28 commands, X.3 parameters or PAD
+recall below apply to it — a real TYMSAT had no command surface at all.
+Its session is: terminal-identifier character, then `-NNNN-PPP-` and
+`please log in:`, then `username[:host]`, then the password. Configure
+it with `tymnet.cfg` (see README).
 
 Under `--emulate telenet`, the PAD also recognises these synonyms:
 `CONNECT`/`C` for CALL, `DISCONNECT`/`D` for CLR, `CONT`/`CONTINUE`

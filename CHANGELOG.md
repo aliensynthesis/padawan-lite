@@ -8,6 +8,75 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **TYMNET emulation via a stand-alone TYMSAT front end
+  (`--emulate tymnet`).** Padawan-Lite now speaks the terminal-facing
+  side of TYMNET: the terminal-identifier request, the `-NNNN-PPP-`
+  node/port line, `please log in:` with `username[:host]`, the
+  password prompt, the acceptance message, and the ~30-entry service
+  message catalogue. Logging off returns to `please log in:` without
+  dropping carrier, and the documented two-minute login limit expires
+  to `PLS SEE YOUR REP`.
+
+  **This is not a PAD personality, and deliberately so.** TYMNET's own
+  documentation places the TYMSAT on the DTE side of a PAD — "a
+  nonpacket mode, asynchronous DTE that originates calls" (*Network
+  Products Concepts and Facilities*, p. 6-4) — with the CCITT PAD
+  function living in the separate X.25/X.75 interface product as
+  TPAD/HPAD. The X.28 PAD is further listed as an *ISIS* TYMSAT
+  capability, absent from the stand-alone TYMSAT emulated here, and a
+  running TYMSAT has no command surface at all ("Interactive access to
+  the TYMSAT for changing options is not possible while the program is
+  running", p. 5-10). `--emulate tymnet` therefore selects a different
+  front end rather than a personality;
+  `personality_by_name("tymnet")` still returns `NULL` and the v1.4.0
+  regression guard asserting that is untouched. The v1.4.0 removal of
+  the placeholder Tymnet personality is superseded, not reversed — see
+  `deviations.txt`.
+
+  New `include/tymsat.h` + `src/tymsat.c` (in `libpadawancore.a`),
+  `tests/test_tymsat.c` (162 assertions), and `bridge/bridge_session.c`,
+  a tagged session handle letting the Telnet bridge drive either front
+  end. Sourced from two primary documents now in `kb/`: *How to Use
+  TYMNET* (July 1982, terminal-user reference) for the wire, and
+  *Network Products Concepts and Facilities* (January + July 1985) for
+  the architecture and login model.
+
+- **`call connected` as the default TYMNET connect acknowledgement.**
+  Emitted once the circuit to the host is up. The string appears in
+  neither primary source — it is the observed behaviour of a 1986
+  TYMNET client. The 1982 pamphlet offers "an acceptance message, *such
+  as* a semicolon (;) or 'host is online'" (lines 49–53) — explicitly
+  examples rather than a closed set, with no stated rule for choosing
+  between them — and the 1985 manuals do not mention an acknowledgement
+  at all. Both pamphlet forms remain selectable via `tymnet.cfg`:
+  `accept call-connected | terse | verbose`. See `deviations.txt` for
+  the full reasoning, including why the pamphlet's semicolon is the
+  weakest-attested of the three.
+
+- **`tymnet.cfg`,** the Tymfile analogue: node/port identity, message
+  case, acceptance form, host-number routes, and the user table.
+  Everything is fixed at load time, mirroring a real TYMSAT's
+  generation-time configuration. Supervisor-side validation (NETVAL,
+  the MUD, access profiles) is not modelled — those are ISIS-network
+  products with no counterpart here.
+
+### Changed
+
+- **`padawan-lite.cfg` is now `telenet.cfg`.** The address map is
+  Telenet/X.25-specific and now sits alongside `tymnet.cfg`, which
+  uses a different and non-interchangeable format. No source change
+  was needed: the filename was only ever a convention passed to
+  `-c/--config`.
+
+- **The bridge is no longer typed on `pad_session_t`.** Sessions travel
+  through `bridge/x25_telnet_bridge.c` as `bridge_session_t`, a tagged
+  handle over the two front ends, and transport-level clear causes are
+  translated into X.25 cause codes or TYMNET messages in one place
+  (`bridge/bridge_session.c`) rather than inline. The PAD's observable
+  behaviour is unchanged. `bridge/` still depends only on public
+  headers and remains extraction-ready.
+
+
 - **`telenet-91` PAD personality.** A clone of `telenet` that differs
   only in X.3 parameter 1 (PAD recall): the recall character is the
   graphic `@` (decimal 64) instead of DLE. This matches the Telenet

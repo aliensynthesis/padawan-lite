@@ -328,7 +328,8 @@ static int handle_bind(pcp_conn_t *c, const char *arg)
     const char *p;
     const char *colon;
     uint32 ip_len;
-    pad_session_t *sess;
+    pad_session_t   *sess;
+    bridge_session_t bsess;
 
     arg = skip_ws(arg);
     colon = strchr(arg, ':');
@@ -355,8 +356,11 @@ static int handle_bind(pcp_conn_t *c, const char *arg)
         conn_writeln(c, "ERR no-such-session");
         return 0;
     }
-    /* Security: require the PCP source IP to match the data-conn peer. */
-    if (x25_bridge_peer_ip_for_session(sess, data_peer,
+    /* Security: require the PCP source IP to match the data-conn peer.
+       x25_bridge_session_at_local only ever returns a PAD session (PCP
+       is an X.29 channel), so wrapping it back into a handle is safe. */
+    bsess = bridge_session_from_pad(sess);
+    if (x25_bridge_peer_ip_for_session(&bsess, data_peer,
                                        (uint32)sizeof(data_peer)) != 0) {
         conn_writeln(c, "ERR session-has-no-peer");
         return 0;

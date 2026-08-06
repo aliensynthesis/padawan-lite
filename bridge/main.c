@@ -46,6 +46,8 @@
 #include "x3.h"
 #include "x25.h"
 #include "x25_telnet_bridge.h"
+#include "bridge_session.h"
+#include "tymsat.h"
 #include "x28_signals.h"
 #include "user_telnet.h"
 #include "pcp.h"
@@ -92,9 +94,16 @@ typedef struct {
     int            is_stdin;
     int            read_fd;     /* read user bytes from here */
     int            write_fd;    /* write PAD output here */
+    /* Which front end drives this session. BRIDGE_SESSION_PAD uses
+       pad below; BRIDGE_SESSION_TYMSAT uses tymsat. The two are peers,
+       not layers -- see include/tymsat.h. */
+    bridge_session_kind_t kind;
     pad_session_t  pad;         /* the call handle for this session is
                                     pad.call (set by x25_call inside
                                     Padawan-Lite's SELECTION dispatch) */
+    tymsat_session_t tymsat;    /* used when kind == BRIDGE_SESSION_TYMSAT;
+                                    its call handle is tymsat.call */
+    bridge_session_t handle;    /* tagged handle handed to the bridge */
     /* Telnet IAC state for the user socket. Only used in --listen
        mode (is_stdin == 0). Stdin sessions go straight to the PAD
        without filtering. */
@@ -152,8 +161,24 @@ static int  g_trace_enabled    = 0;
 static int  g_trace_line_mode  = 0;
 static int  g_pcp_port         = 0;   /* PCP listener port; 0 = disabled */
 static const personality_t *g_personality = NULL;  /* NULL = default */
+
+/* TYMNET mode: --emulate tymnet selects the stand-alone TYMSAT front
+   end instead of the X.28 PAD. This is deliberately NOT a personality:
+   personality_by_name("tymnet") still returns NULL and the v1.4.0
+   regression guard in tests/test_personality.c still holds. See
+   include/tymsat.h for why the TYMSAT cannot be a PAD personality. */
+#define MAX_TYMSAT_USERS 64
+static int             g_tymnet_mode = 0;
+static tymsat_config_t g_tymsat_cfg;
+static tymsat_user_t   g_tymsat_users[MAX_TYMSAT_USERS];
+static uint16          g_tymsat_user_count = 0;
 static char g_trace_prefix[TRACE_PREFIX_MAX + 1] = TRACE_DEFAULT_PREFIX;
 static int  g_trace_seq        = 0;       /* monotonic session counter */
+
+/* The X.25 call handle owned by whichever front end drives a session.
+   Defined below alongside the front-end callbacks; declared here
+   because the throttle helpers above the callbacks also send on it. */
+static x25_call_t *session_call(user_session_t *u);
 
 /* Forward declarations for trace helpers (defined further down so the
    PAD-callback section can call them). */
@@ -184,6 +209,133 @@ static int load_nui_file(const char *filename)
         g_nui_count++;
     }
     fclose(f);
+    return 0;
+}
+
+/* Load tymnet.cfg -- the Tymfile analogue for the stand-alone TYMSAT.
+
+   "The Tymfile contains the macros that specify TYMSAT configuration
+   and constraints. These features and options are set at system
+   generation. Interactive access to the TYMSAT for changing options is
+   not possible while the program is running."
+     -- Network Products Concepts and Facilities, Jan 1985, p. 5-10
+
+   Accordingly everything here is read once at startup and is immutable
+   thereafter. Recognised directives:
+
+     node <n>                        access-node number
+     port <n>                        port number on that node
+     slot <n>                        enables the three-number WATS form
+     case lower|upper                message case on the wire
+     accept call-connected|terse|verbose
+     host <number> <tcp-host> <port> destination host number -> endpoint
+     user <name> <pw|-> <home|-> [ignore-host]
+
+   Host entries feed the same bridge address map the Telenet side uses,
+   so a TYMNET host number resolves through x25_call exactly as an X.25
+   address does. Returns 0 on success, -1 if the file cannot be opened. */
+static int load_tymnet_cfg(const char *filename)
+{
+    FILE *f;
+    char  line[256];
+    char  kw[32];
+
+    if (filename == NULL) return -1;
+    f = fopen(filename, "r");
+    if (f == NULL) return -1;
+
+    memset(&g_tymsat_cfg, 0, sizeof(g_tymsat_cfg));
+    memset(g_tymsat_users, 0, sizeof(g_tymsat_users));
+    g_tymsat_user_count = 0;
+
+    /* Defaults, used for any directive the file omits. */
+    g_tymsat_cfg.node_number = 4242;
+    g_tymsat_cfg.port_number = 56;
+
+    while (fgets(line, sizeof(line), f) != NULL) {
+        char *p = line;
+        while (*p == ' ' || *p == '\t') p++;
+        if (*p == '#' || *p == '\n' || *p == '\r' || *p == '\0') continue;
+        if (sscanf(p, "%31s", kw) != 1) continue;
+
+        if (strcmp(kw, "node") == 0) {
+            int v;
+            if (sscanf(p, "%31s %d", kw, &v) == 2 && v >= 0 && v <= 65535) {
+                g_tymsat_cfg.node_number = (uint16)v;
+            }
+        } else if (strcmp(kw, "port") == 0) {
+            int v;
+            if (sscanf(p, "%31s %d", kw, &v) == 2 && v >= 0 && v <= 65535) {
+                g_tymsat_cfg.port_number = (uint16)v;
+            }
+        } else if (strcmp(kw, "slot") == 0) {
+            int v;
+            if (sscanf(p, "%31s %d", kw, &v) == 2 && v >= 0 && v <= 65535) {
+                g_tymsat_cfg.slot_number      = (uint16)v;
+                g_tymsat_cfg.emit_slot_number = 1;
+            }
+        } else if (strcmp(kw, "case") == 0) {
+            char v[16];
+            if (sscanf(p, "%31s %15s", kw, v) == 2) {
+                g_tymsat_cfg.uppercase_messages =
+                    (uint8)(strcmp(v, "upper") == 0 ? 1 : 0);
+            }
+        } else if (strcmp(kw, "accept") == 0) {
+            char v[24];
+            if (sscanf(p, "%31s %23s", kw, v) == 2) {
+                if (strcmp(v, "terse") == 0) {
+                    g_tymsat_cfg.accept_msg = TYMSAT_ACCEPT_TERSE;
+                } else if (strcmp(v, "verbose") == 0) {
+                    g_tymsat_cfg.accept_msg = TYMSAT_ACCEPT_VERBOSE;
+                } else {
+                    /* Anything else, including "call-connected", takes
+                       the client-attested default. */
+                    g_tymsat_cfg.accept_msg = TYMSAT_ACCEPT_CALL_CONNECTED;
+                }
+            }
+        } else if (strcmp(kw, "host") == 0) {
+            char num[16];
+            char tcp_host[64];
+            int  tcp_port;
+            if (sscanf(p, "%31s %15s %63s %d",
+                       kw, num, tcp_host, &tcp_port) == 4) {
+                (void)x25_bridge_add_map_entry(num, tcp_host, tcp_port);
+            }
+        } else if (strcmp(kw, "user") == 0) {
+            char name[64];
+            char pw[64];
+            char home[64];
+            char opt[32];
+            int  fields;
+            if (g_tymsat_user_count >= MAX_TYMSAT_USERS) continue;
+            opt[0] = '\0';
+            fields = sscanf(p, "%31s %63s %63s %63s %31s",
+                            kw, name, pw, home, opt);
+            if (fields < 4) continue;
+            if (strlen(name) > TYMSAT_USERNAME_MAX)  continue;
+            if (strlen(pw)   > TYMSAT_PASSWORD_MAX)  continue;
+            if (strlen(home) > TYMSAT_HOSTNUM_MAX)   continue;
+            {
+                tymsat_user_t *u = &g_tymsat_users[g_tymsat_user_count];
+                strcpy(u->username, name);
+                /* "-" is the file's way of writing "absent": no
+                   password (the No Password option) or no home
+                   destination. */
+                if (strcmp(pw, "-") != 0)   strcpy(u->password, pw);
+                if (strcmp(home, "-") != 0) strcpy(u->default_host, home);
+                u->ignore_host =
+                    (uint8)((fields >= 5 &&
+                             strcmp(opt, "ignore-host") == 0) ? 1 : 0);
+                g_tymsat_user_count++;
+            }
+        }
+        /* Unknown directives are ignored rather than fatal, so a
+           tymnet.cfg written for a later version still loads. */
+    }
+    fclose(f);
+
+    g_tymsat_cfg.users      = g_tymsat_users;
+    g_tymsat_cfg.user_count = g_tymsat_user_count;
     return 0;
 }
 
@@ -376,7 +528,7 @@ static uint32 throttle_emit_remote(user_session_t *u, uint32 n)
         uint32 chunk = q->len;
         if (chunk > n)                            chunk = n;
         if (q->head + chunk > THROTTLE_BUF)       chunk = THROTTLE_BUF - q->head;
-        (void)x25_send(&u->pad.call, q->buf + q->head, chunk, 0);
+        (void)x25_send(session_call(u), q->buf + q->head, chunk, 0);
         q->head = (q->head + chunk) % THROTTLE_BUF;
         q->len -= chunk;
         n      -= chunk;
@@ -620,7 +772,16 @@ static void trace_close(user_session_t *u)
     u->trace_fp = NULL;
 }
 
-/* --- PAD callbacks (ctx is the user_session_t *) --------------------- */
+/* The X.25 call handle owned by whichever front end drives this
+   session. Both front ends populate their own x25_call_t during call
+   setup; outbound data must use that one, not a copy. */
+static x25_call_t *session_call(user_session_t *u)
+{
+    if (u->kind == BRIDGE_SESSION_TYMSAT) return &u->tymsat.call;
+    return &u->pad.call;
+}
+
+/* --- front-end callbacks (ctx is the user_session_t *) --------------- */
 
 static void cb_dte(void *ctx, const uint8 *data, uint32 len)
 {
@@ -657,7 +818,7 @@ static void cb_remote(void *ctx, const uint8 *data, uint32 len)
        being looked up, which after the generation-counter change
        (slot 0's gen becomes 1 on first use) failed to match any slot
        and silently dropped outbound data. */
-    (void)x25_send(&u->pad.call, data, len, 0);
+    (void)x25_send(session_call(u), data, len, 0);
 }
 
 /* --- session setup ---------------------------------------------------- */
@@ -671,6 +832,30 @@ static void setup_stdin_session(uint8 profile_id)
     u->write_fd = STDOUT_FILENO;
 
     enter_raw_mode();
+
+    /* TYMNET mode: the stand-alone TYMSAT replaces the PAD entirely.
+       It has no handshake variants, no X.3 profile and no personality
+       -- it opens by asking for the terminal identifier. */
+    if (g_tymnet_mode) {
+        u->kind = BRIDGE_SESSION_TYMSAT;
+        if (tymsat_init(&u->tymsat, &g_tymsat_cfg,
+                        cb_dte, cb_remote, u) != 0) {
+            destroy_session(u);
+            return;
+        }
+        u->handle = bridge_session_from_tymsat(&u->tymsat);
+        trace_open(u, 1);
+        fprintf(stderr,
+                "Padawan-Lite v1.2 - stand-alone TYMSAT (node %u port %u).\n"
+                "Type a terminal identifier (A-G, I, P). Ctrl-D = exit.\n",
+                (unsigned)g_tymsat_cfg.node_number,
+                (unsigned)g_tymsat_cfg.port_number);
+        fflush(stderr);
+        x25_bridge_bind(&u->handle);
+        return;
+    }
+
+    u->kind = BRIDGE_SESSION_PAD;
     if (g_termios_saved) {
         if (pad_init_handshake(&u->pad, profile_id,
                                cb_dte, cb_remote, u) != 0) {
@@ -715,7 +900,8 @@ static void setup_stdin_session(uint8 profile_id)
     fflush(stderr);
 
     /* Make the next x25_call associate the call with this session. */
-    x25_bridge_bind(&u->pad);
+    u->handle = bridge_session_from_pad(&u->pad);
+    x25_bridge_bind(&u->handle);
 }
 
 static int start_listener(int port)
@@ -780,6 +966,20 @@ static void accept_session(uint8 profile_id)
     user_telnet_init(&u->telnet, fd);
     user_telnet_send_initial(&u->telnet);
 
+    if (g_tymnet_mode) {
+        u->kind = BRIDGE_SESSION_TYMSAT;
+        if (tymsat_init(&u->tymsat, &g_tymsat_cfg,
+                        cb_dte, cb_remote, u) != 0) {
+            destroy_session(u);
+            return;
+        }
+        u->handle = bridge_session_from_tymsat(&u->tymsat);
+        trace_open(u, 0);
+        x25_bridge_bind(&u->handle);
+        return;
+    }
+
+    u->kind = BRIDGE_SESSION_PAD;
     if (pad_init_handshake(&u->pad, profile_id,
                            cb_dte, cb_remote, u) != 0) {
         destroy_session(u);
@@ -815,7 +1015,8 @@ static void accept_session(uint8 profile_id)
     }
 
     /* Make the next x25_call from this session associate correctly. */
-    x25_bridge_bind(&u->pad);
+    u->handle = bridge_session_from_pad(&u->pad);
+    x25_bridge_bind(&u->handle);
 }
 
 /* --- I/O per session ------------------------------------------------- */
@@ -846,7 +1047,38 @@ static void handle_user_input(user_session_t *u)
 
     /* Bind so any x25_call triggered by this byte stream associates with
        the right session. */
-    x25_bridge_bind(&u->pad);
+    x25_bridge_bind(&u->handle);
+
+    if (u->kind == BRIDGE_SESSION_TYMSAT) {
+        /* The TYMSAT has no command mode and no break semantics, so
+           the PAD's Ctrl-B intercept does not apply. Ctrl-D still
+           exits an interactive stdin session, as that is the driver's
+           own convention rather than the front end's. */
+        if (u->is_stdin && g_termios_saved) {
+            for (i = 0; i < nn; i++) {
+                if (buf[i] == 0x04) {           /* Ctrl-D */
+                    destroy_session(u);
+                    return;
+                }
+                tymsat_input_dte(&u->tymsat, &buf[i], 1);
+            }
+        } else if (u->is_stdin) {
+            tymsat_input_dte(&u->tymsat, buf, nn);
+        } else {
+            uint8  filtered[256];
+            uint16 w = 0, h = 0;
+            uint32 n_filtered = user_telnet_filter(&u->telnet,
+                                                   buf, nn, filtered);
+            if (user_telnet_get_naws(&u->telnet, &w, &h)) {
+                x25_bridge_set_window_size_for_session(&u->handle, w, h);
+                u->telnet.has_naws = 0;
+            }
+            if (n_filtered > 0) {
+                tymsat_input_dte(&u->tymsat, filtered, n_filtered);
+            }
+        }
+        return;
+    }
 
     if (u->is_stdin && g_termios_saved) {
         /* Interactive-tty intercepts: Ctrl-D = quit; Ctrl-B = break. */
@@ -877,7 +1109,7 @@ static void handle_user_input(user_session_t *u)
            (per-session, so other users' sizes are untouched). Consume
            the flag so we don't re-send on every byte. */
         if (user_telnet_get_naws(&u->telnet, &w, &h)) {
-            x25_bridge_set_window_size_for_session(&u->pad, w, h);
+            x25_bridge_set_window_size_for_session(&u->handle, w, h);
             u->telnet.has_naws = 0;
         }
         if (n_filtered > 0) {
@@ -919,7 +1151,9 @@ static void usage(const char *argv0)
         "      --pcp-port <port>    PAD Control Protocol listener"
                                  " (localhost; 0 = off)\n"
         "      --emulate <name>     PAD personality"
-                                 " (default, telenet, telenet-91)\n");
+                                 " (default, telenet, telenet-91)\n"
+        "                           or 'tymnet' for the stand-alone"
+                                 " TYMSAT front end\n");
     fprintf(stderr,
         "      --ttype-claim <name> default terminal-type claim"
                                  " (vt52, vt100, vt102, vt220, xterm,\n"
@@ -1007,10 +1241,19 @@ int main(int argc, char **argv)
         } else if (strcmp(argv[ai], "--emulate") == 0) {
             if (++ai >= argc) { usage(argv[0]); return 2; }
             g_personality = personality_by_name(argv[ai]);
-            if (g_personality == NULL) {
+            /* "tymnet" is NOT a personality: it selects a different
+               front end entirely (the stand-alone TYMSAT), so it is
+               intercepted ahead of the personality lookup. See
+               include/tymsat.h. personality_by_name("tymnet") still
+               returns NULL, as tests/test_personality.c asserts. */
+            if (strcmp(argv[ai], "tymnet") == 0) {
+                g_tymnet_mode = 1;
+                g_personality = NULL;
+            } else if (g_personality == NULL) {
                 fprintf(stderr,
                         "unknown personality '%s' "
-                        "(try default, telenet, telenet-91)\n", argv[ai]);
+                        "(try default, telenet, telenet-91, tymnet)\n",
+                        argv[ai]);
                 return 2;
             }
         } else if (strcmp(argv[ai], "--ttype-claim") == 0) {
@@ -1053,7 +1296,32 @@ int main(int argc, char **argv)
         fprintf(stderr, "x25_init failed\n");
         return 1;
     }
-    if (map_file != NULL) {
+    /* -c names an address map in Telenet mode and a Tymfile-equivalent
+       in TYMNET mode; the two formats are different and not
+       interchangeable, so the front end selects the loader. TYMNET host
+       numbers land in the same bridge address map, so x25_call resolves
+       them the same way either side. */
+    if (g_tymnet_mode) {
+        memset(&g_tymsat_cfg, 0, sizeof(g_tymsat_cfg));
+        g_tymsat_cfg.node_number = 4242;
+        g_tymsat_cfg.port_number = 56;
+        g_tymsat_cfg.users       = g_tymsat_users;
+        g_tymsat_cfg.user_count  = 0;
+        if (map_file != NULL) {
+            if (load_tymnet_cfg(map_file) != 0) {
+                fprintf(stderr, "warning: failed to load TYMSAT config "
+                                "%s: %s\n", map_file, strerror(errno));
+            }
+        }
+        if (g_tymsat_cfg.user_count == 0) {
+            fprintf(stderr,
+                    "warning: no TYMSAT users configured%s -- every login "
+                    "will be refused with \"error, type user name\".\n"
+                    "         Supply a tymnet.cfg with 'user' entries via "
+                    "-c/--config.\n",
+                    map_file == NULL ? " (no -c/--config given)" : "");
+        }
+    } else if (map_file != NULL) {
         if (x25_bridge_load_map(map_file) != 0) {
             fprintf(stderr, "warning: failed to load address map %s: %s\n",
                     map_file, strerror(errno));
@@ -1171,7 +1439,7 @@ int main(int argc, char **argv)
                 idx_user[i] = nfds++;
             }
             {
-                int bfd = x25_bridge_fd_for_session(&g_sessions[i].pad);
+                int bfd = x25_bridge_fd_for_session(&g_sessions[i].handle);
                 if (bfd >= 0) {
                     /* Same idea on the bridge side: suppress POLLIN when
                        the downstream queue is near full, leaving POLLOUT
@@ -1225,7 +1493,18 @@ int main(int argc, char **argv)
             uint32 ticks = elapsed_ms / 50;
             for (i = 0; i < MAX_SESSIONS; i++) {
                 if (!g_sessions[i].in_use) continue;
-                pad_tick(&g_sessions[i].pad, ticks);
+                if (g_sessions[i].kind == BRIDGE_SESSION_TYMSAT) {
+                    /* The TYMSAT's only timer is the two-minute login
+                       limit; a non-zero return means it expired and
+                       the caller should drop carrier ("PLS SEE YOUR
+                       REP", How to Use TYMNET 1982 line 262). */
+                    if (tymsat_tick(&g_sessions[i].tymsat, ticks)) {
+                        destroy_session(&g_sessions[i]);
+                        continue;
+                    }
+                } else {
+                    pad_tick(&g_sessions[i].pad, ticks);
+                }
                 if (g_throttle_bps > 0) {
                     throttle_refill(&g_sessions[i].dte_q,    (int32)elapsed_ms);
                     throttle_refill(&g_sessions[i].remote_q, (int32)elapsed_ms);
@@ -1259,7 +1538,7 @@ int main(int argc, char **argv)
                 g_sessions[i].in_use &&
                 pfds[idx_bridge[i]].revents) {
                 int bfd = pfds[idx_bridge[i]].fd;
-                x25_bridge_bind(&g_sessions[i].pad);
+                x25_bridge_bind(&g_sessions[i].handle);
                 x25_bridge_poll_fd(bfd, pfds[idx_bridge[i]].revents);
             }
             if (idx_user[i] >= 0 &&
@@ -1278,7 +1557,11 @@ int main(int argc, char **argv)
         int i;
         for (i = 0; i < MAX_SESSIONS; i++) {
             if (g_sessions[i].in_use) {
-                pad_flush(&g_sessions[i].pad);
+                /* pad_flush drains the PAD's assembly buffer; the
+                   TYMSAT assembles nothing and needs no counterpart. */
+                if (g_sessions[i].kind != BRIDGE_SESSION_TYMSAT) {
+                    pad_flush(&g_sessions[i].pad);
+                }
                 destroy_session(&g_sessions[i]);
             }
         }

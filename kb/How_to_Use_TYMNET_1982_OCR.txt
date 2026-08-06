@@ -1,0 +1,417 @@
+HOW TO USE TYMNET®
+A REFERENCE GUIDE FOR TERMINAL USERS
+JULY 1982
+
+TYMNET'S INFORMATION DIRECTORY
+
+TYMNET offers local dial-up access in hundreds of metropolitan areas around the U.S. Files containing telephone access numbers and other useful information about the network are maintained on line in TYMNET's Information Directory, and are automatically accessed by the public user name, 'INFORMATION,' followed by a semicolon (;) and a carriage return.
+
+MAKING A TELEPHONE CONNECTION TO TYMNET
+
+1. Turn on the terminal, and set its switches to 'full duplex' and 'on line,' for remote session.
+
+2. Dial your local TYMNET telephone access number and wait for a high-pitched tone:
+
+- If you have an acoustic coupler, place the telephone handset firmly in the coupler, orienting it in the direction indicated.
+- If you have a direct connect modem (data set), depress the DATA button.
+
+Note: Terminals that operate at 120cps (1200 baud) must use specific telephone numbers for access. You may obtain these from the person in your organization who handles TYMNET matters, or from the TYMNET Information Directory.
+
+LOG IN AND LOG OFF
+
+The standard procedure for logging in to TYMNET is described here. A company providing a host computer may issue special instructions for accessing a specific host system. If in doubt about the log-in procedure for a particular host, contact the company that operates the host.
+
+Logging In to TYMNET
+
+1. When you have connected to the network, TYMNET will display a request for your terminal identifier.
+
+please type your terminal identifier
+
+Enter your terminal identifier character. (See 'Terminal Identifiers,' below.)
+
+This message may appear garbled at a terminal operating at a speed other than 30cps (300 baud), if it is connected to a multi-speed port with a 212A or Vadic 3467 modem. It may not appear at some terminals, at all. Wait a few seconds and type your identifier.
+
+2. TYMNET will display the number of the remote access node to which you are connected, followed by the number of your port on the node, and will request that you log in:*
+
+-NNNN-PPP-
+please log in:
+
+3. Type your user name and a carriage return.
+
+You may need to provide additional information about your terminal by entering one or more control characters before typing your user name. (See 'Control Characters,' below.)
+
+4. TYMNET will prompt for your password.
+
+password:
+
+Type your password and a carriage return. Passwords are not displayed at full-duplex terminals for security reasons.
+
+5. TYMNET will display an acceptance message, such as a semicolon (;) or 'host is online,' to indicate that you are connected to the host computer.
+
+;
+or
+host is online
+
+Log Off
+
+After you have logged off from the host computer, you will receive the message:
+
+please log in:
+
+You may log in to the same host or to another, or you may hang up.
+
+ACCESSING DATAPAC
+
+The standard procedure for accessing a host on the Datapac network is described below. TYMNET's Information Directory includes files of material about Datapac and TYMNET's international services.
+
+Logging In to Datapac via TYMNET
+
+1. Prepare your terminal for remote session and make a telephone connection to TYMNET, following the procedure described above.
+
+2. TYMNET will display a request for your terminal identifier.
+
+please type your terminal identifier
+
+Enter your terminal identifier.
+
+This message may appear as nonsense characters at a terminal running at a speed other than 30cps, if it is connected to a multi-speed port with a 212A or a Vadic 3467 modem. Some terminals will not display the message at all. Wait a few seconds and type your terminal identifier.
+
+3. TYMNET will display the number of the remote access node to which you are connected, followed by the number of your port on the node, and will request that you log in:*
+
+-NNNN-PPP-
+please log in:
+
+* TYMNET displays three numbers in certain connections, such as those made via WATS lines. The first number in the sequence represents the node to which you are connected, the second is the number of the slot, and the third represents your port.
+
+4. Enter the log-in command, specifying: the Datapac network (DPAC), a semicolon (a second semicolon will echo at your terminal), the Datapac network identification code (3020), the 8-digit host address, and a carriage return.
+
+DPAC;;3020host address [carriage return]
+
+If you need to provide additional user data, enter a colon (:) immediately after the host address, and your user data followed by a carriage return.
+
+DPAC;;3020host address:user data [carriage return]
+
+5. Datapac will display an acceptance message, such as a semicolon (;) or 'host is online' to indicate that you are connected to the host computer.
+
+;
+or
+host is online
+
+Log Off
+
+After you have logged off from the host computer, you will receive the message:
+
+please log in:
+
+You may log in to the same host or to another, or you may hang up.
+
+TYMNET CONTROL CHARACTERS
+
+Control H - Initiates half-duplex operation, suppressing TYMSAT echoing of input characters.
+Control P - Provides even parity for computer output. This is used with terminals that can not be optioned to ignore parity checking.
+Control R - Allows the terminal to control the incoming flow of data from the host with X-OFF (Control S) and X-ON (Control Q) to prevent loss of data.
+Control S - Entered during the session to halt the incoming flow of data from the host. Control S is effective only when a Control R has been entered at log in.
+Control Q - Entered during the session to signal the network that the incoming flow of data may be resumed. Control Q is effective only when a Control R has been entered at log in.
+Control X - Allows transmission from paper tape, cassette, or internal buffer, by requesting that TYMNET control the flow of terminal input with X-OFF (Control S) and X-ON (Control Q) to prevent the loss of data.
+
+TERMINAL IDENTIFIERS
+
+TYMNET's terminal identifiers are characters that are entered by the user at log in to indicate terminal speed, carriage-return delay time, and code to the network. Some terminals can be supported by more than one identifier. For example:
+
+- Many 30cps (300 baud) terminals that normally use the A identifier can use the E to receive carriage return delay time.
+- Many 120cps (1200 baud) terminals that normally use the A identifier can use the I to receive carriage return delay time.
+- Some 120cps intelligent printers operate more efficiently with an A identifier, if Control R and Control X are entered at log in.
+
+A company providing a host computer may issue special instructions for accessing that host. FOR SOME HOSTS THE TERMINAL IDENTIFIER SHOULD ALWAYS BE A, REGARDLESS OF TERMINAL TYPE. IF IN DOUBT, CONTACT THE HOST OPERATOR.
+
+Identifiers, by Terminal Characteristics
+
+A | ASCII | 30cps, 120cps | CRT terminals; Personal computers
+B | ASCII | 15cps | All terminals
+C | ASCII | 30cps | Impact printers
+D | ASCII | 10cps | All terminals
+E | ASCII | 30cps | Thermal printers
+F | ASCII | 15cps in / 30cps out | BETA terminals
+G | ASCII | 30cps, 120cps | Belt printers; G.E. Terminet
+I | ASCII | 120cps | Matrix printers
+P + carriage return | EBCD / Correspondence | 14.8cps | Selectric-type terminals (e.g., 2741)
+
+The identifier A is used with terminals that have no line-feed or carriage return delay, such as CRT terminals, and for terminals with buffers, such as the Tymshare 350.
+
+Personal computers running at 30cps or faster should use the A identifier. If files are to be sent during the session, enter Control R and Control X immediately before your user name. (See 'Control Characters.')
+
+The E identifier should be used with personal computers that operate at a slower rate than 30cps. Control R and Control X should be entered before the user name if files are to be sent during the session.
+
+TROUBLE SHOOTING AND REPORTING PROBLEMS
+
+TYMNET has a series of procedures for customers to use in identifying, handling, and reporting network problems. When a problem arises that cannot be resolved by following any of the procedures outlined below, notify the individual in your company who functions as a TYMNET representative, handling network-related matters. Please do not contact TYMNET directly; your representative will provide the liaison with TYMNET.
+
+Information to Furnish Your Representative
+
+- The telephone access number in use when the problem occurred, and the city and state where the number is located.
+- The type of terminal and modem in use.
+- The type of service in use: e.g., 300 baud, 1200 baud Vadic, 1200 baud 212, etc.
+- The numbers of the node and port in the connection. (See 'Random Garbage Characters,' below.)
+- The host company that provides the computer that was being accessed, if known.
+- A description of the problem.
+
+Solving Network Access Problems
+
+FAST BUSY SIGNAL
+A fast busy signal indicates a temporary overload in local telephone circuits. Please try again. If the condition persists, notify your local telephone company.
+
+SLOW BUSY SIGNAL
+A slow busy signal indicates the TYMSAT rotary group you have dialed has reached capacity. Hang up and try again in a few minutes. If the condition persists, please notify your representative.
+
+RING-NO-ANSWER
+Check to see that you have dialed the correct number, and then place the call again. Please notify your representative if you have this problem with a correct number.
+
+TONE-NO-RESPONSE
+Before reporting this problem, check your terminal and coupler switch settings, cable connections, and power-on settings, and be sure the terminal is in the on-line mode. Verify that you are using the correct identifier for your terminal.
+
+If the same equipment has been used successfully with the same telephone access number before, and if you can log in by dialing other areas, please report the problem to your representative.
+
+NO RESPONSE TO USER NAME
+This indicates that the TYMSAT you are trying to access is not under the control of an active Supervisor at this moment. Hang up and try again in a few minutes.
+
+RANDOM 'GARBAGE' CHARACTERS
+There are many possible sources of 'garbage' characters; for example, a telephone line that goes through a switchboard, a noise source close to an acoustic coupler, or problems in a data set, terminal, telephone company or TYMNET hardware. See 'Solving Telephone Equipment Problems,' below, for suggested solutions to problems related to your own equipment.
+
+If you can use more than one local access telephone number to connect to TYMNET, try to eliminate the 'garbage' characters by disconnecting from the network and dialing a different access number.
+
+The most important piece of information you can supply when reporting 'garbage' characters is the number of the port to which you connected when you logged in. This is the second of the two numbers in the line of numbers and hyphens TYMNET displays immediately after you enter your terminal identifier.
+
+DROPS (DISCONNECT/LOSS OF CARRIER)
+Drops have the same kinds of causes and solutions as 'garbage' characters. Please report drops as soon as possible when they occur, if you cannot correct them. Be prepared to report whether you received a message when you were dropped, and what that message was.
+
+Solving Telephone Equipment Problems
+
+- Use a telephone with a direct outside line, rather than one going through a switchboard.
+- Be sure your telephone does not have an extension.
+- Many times, problems with 'garbage,' drops, and error rates can be eliminated by switching from an acoustic coupler to a direct connect modem (data set), especially if the quality of telephone service in your area is poor.
+- If you must use an acoustic coupler, keep it well away from the terminal, if possible. If the coupler has a lid, keep it closed.
+- Hang up the telephone when your terminal is not in use to slow the crystallization of the telephone's speaker and receiver elements. These will eventually crystallize if the handset is regularly used with an acoustic coupler, causing 'garbage,' drops, and error rates to increase. You may want to try a different handset that has not been used with an acoustic coupler before.
+- Be sure that there is a piece of cotton baffling behind the receiver inside the earpiece of your telephone handset. Most telephone companies put cotton baffling in the earpiece before installing a telephone.
+
+TYMNET MESSAGES
+
+ACCESS NOT PERMITTED
+An attempt has been made to log into a host either under an invalid user name or from a node barred from accessing the host.
+
+ALL PORTS BUSY or HOST OUT OF PORTS
+No connection can be made with the host at this time because the ports available to TYMNET which operate at the appropriate speed for your terminal are busy. Try again in a few minutes.
+
+BAD HOST NUMBER
+An invalid host number has been specified. Log in again and enter the correct host system number.
+
+BAD MUD
+The Supervisor cannot read the Master User Directory. Please notify your representative.
+
+CIRCUITS BUSY
+All available paths to the TYMCOM are busy. Try again in a few minutes.
+
+DATA LOST TOWARD HOST
+Data has been lost because the terminal has been sending it too fast for the host, and the network does not have sufficient buffer space available for the overflow. This occurs with hosts that can not accept backpressure (X-ON and X-OFF). Send the data again. If this problem persists, contact your representative.
+
+DATA LOST TOWARD TERMINAL
+Incoming data has been lost because the host has been sending it faster than the terminal can accept it, and the network does not have sufficient buffer space available for the overflow. This occurs with host computers that cannot initiate or accept backpressure (X-ON and X-OFF). Request that the data be sent again. If the problem persists, contact your representative.
+
+DROPPED BY HOST SYSTEM
+You have logged off and/or have been disconnected by the host. Hang up if you have finished your session or log in again for another.
+
+ERROR, TYPE USER NAME
+An attempt has been made to log in under an invalid user name. Type your correct user name.
+
+ERROR, TYPE PASSWORD
+An invalid password has been entered. Type your correct password.
+
+HOST DOWN
+The network is fully operational, but the host computer is down. Try again in a few minutes. If this condition persists, contact the host operator.
+
+HOST IS ONLINE
+You are connected to the host computer and may proceed with your session.
+
+HOST NOT AVAILABLE THRU NET
+This message can appear if: 1) the TYMCOM, its neighbor(s), or a line between them is down, or 2) a new Supervisor is taking over the network and has not yet picked up the host, or 3) an invalid host has been requested. If the correct number of the host system was entered, hang up and try again in a few minutes.
+
+HOST NOT RESPONDING
+Either the link between the TYMCOM and the host is temporarily lost, or an appropriate response to the connect request is not being received from the host. Try again in a few minutes.
+
+HOST SHUT
+The Supervisor is not routing new users to the host, but current users may not be affected. Try again in a few minutes.
+
+LOGON ABORTED... DISCONNECTING
+The TYMSAT is currently unable to process new log ins. Try again in five minutes.
+
+NO HOST SPECIFIED
+An attempt has been made to log in under a user name that is valid on more than one host, but which is not automatically connected to any host by default. Log in again and specify the host system.
+
+NO PATH AVAILABLE... DISCONNECTING
+The TYMSAT is currently unable to process new log ins. Try again in a few minutes.
+
+OUT OF CHANNELS
+The TYMCOM cannot accept new circuits at this time. Try again in a few minutes. If this problem persists, contact your representative.
+
+PASSWORD
+A carriage return or line feed has been entered instead of a password. Type your password on the same line as the prompt.
+
+PLEASE LOG IN:
+This message appears when you log off the host computer or when your circuit to the host is broken. Hang up if you have finished your session or log in for another. If your session is interrupted again, please note the numbers of the node and port to which you were connected and report the problem to your representative.
+
+PLS SEE YOUR REP
+A valid user name or password has not been entered within two minutes following the terminal identifier entry. Hang up and log in again.
+
+PLEASE TRY AGAIN
+An attempt has been made to log into a multihost system with an incorrect user name. Log in again and type your user name correctly.
+
+RE-ENTER ADDRESS AND DATA
+This message may appear when you are accessing an X.25/X.75 interface and indicates the necessary log-in information has not been entered correctly. Enter the host address and your user data again, ending with a carriage return.
+
+REQUESTED SUBPROCESS IS UNAVAILABLE AT THIS TIME
+The process that you have requested in the host is not currently available. Try again in ten minutes.
+
+RING NO ANSWER ON PORT #YY
+An attempt has been made to log in to an asynchronous TYMCOM, but the host does not answer. Hang up and try again. If the condition persists, note the number of the port to which you were connected and notify the host operator.
+
+SYSTEM ERROR ON PORT #YY
+You have connected to port number YY, but the host system is not responding. Try again in a few minutes.
+
+TEMPORARY NETWORK PROBLEM
+The network is currently unable to process traffic. Wait a few minutes and try again. If the problem persists, notify your representative.
+
+TRY AGAIN IN 2 MINUTES
+A new Supervisor is taking over the network or a link has failed. Try again in a few minutes.
+
+TYPE "P" AHEAD OF ADDRESS
+This message may appear when you are accessing an X.25/X.75 interface. It indicates that the call data has not been entered in the correct format. Log in again and type a "P" before the 8-digit host address.
+
+USER NAME
+A carriage return or line feed has been entered instead of a user name. Type your user name on the same line as the prompt.
+
+GLOSSARY
+
+BACKPRESSURE
+A method of regulating the flow of data between two devices on the network, usually a remote (terminal) and a host.
+
+BUFFER
+A dynamic storage area for data in transmission.
+
+CPS
+Characters per second.
+
+DIAL-UP
+The use of a dial or push-button telephone to make a station-to-station connection.
+
+HOST COMPUTER
+The computer which is accessed by users through TYMNET. The host operator is a TYMNET customer who provides computer services through the network.
+
+LINK
+A connection between two nodes in the network over which data is transmitted.
+
+NEIGHBORS
+Two network nodes connected by the same link.
+
+NODE
+A network computer that provides interfaces for TYMCOMs and TYMSATs, multiplexes user data across network links, and provides backpressure.
+
+PARITY
+A form of error checking in which an extra bit is added to the data bits comprising each transmitted character to make the total number of 1 bits always even or always odd.
+
+PORT
+A physical or logical position on a node assigned to the user to identify a session.
+
+TYMSAT
+The means of providing an interface between a terminal and the network.
+
+TYMCOM
+The means of providing an interface between a host computer and the network.
+
+SUPERVISOR
+A program that coordinates the services and components of the network, controlling access, verifying users, allocating resources, and performing various functions to maintain the security and operation of the network.
+
+TYMNET OFFICES
+
+TYMNET®, Inc.,
+a Tymshare company
+2710 Orchard Parkway
+San Jose, California 95134
+408/946-4900
+
+REGIONAL OFFICES
+
+Western Regional Sales
+1001 West 31st Street
+Downers Grove, Illinois 60515
+312/960-9131
+
+Eastern Region and Federal Government Region Sales
+2070 Chainbridge Road
+Vienna, Virginia 22180
+703/827-9110
+
+European Operations
+165 Bureaux De La Colline
+92213 Saint Cloude Cedex (France)
+(331) 602 61 32
+
+TYMNET SALES OFFICES
+
+CALIFORNIA
+Santa Clara - (408) 727-0840
+San Francisco - (415) 956-6792
+Irvine - (714) 641-9350
+
+MISSOURI
+St. Louis - (314) 878-9855
+
+COLORADO
+Englewood - (303) 741-5080
+
+NEW JERSEY
+Lyndhurst - (201) 460-0450
+
+CONNECTICUT
+Westport - (203) 222-1802
+
+NEW YORK
+Pittsford - (716) 248-5960
+New York - (212) 279-7070
+
+GEORGIA
+Roswell - (404) 998-9153
+
+OHIO
+Westlake - (216) 835-7258
+
+ILLINOIS
+Downers Grove - (312) 960-9131
+
+PENNSYLVANIA
+Pittsburgh - (412) 531-5660
+Philadelphia - (215) 569-3445
+
+MASSACHUSETTES
+Woburn - (617) 933-7588
+
+TEXAS
+Dallas - (214) 637-7363
+Houston - (713) 870-0913
+
+MICHIGAN
+Howell - (517) 546-0302
+
+VIRGINIA
+Vienna - (703) 827-9110
+
+MINNESOTA
+Minneapolis - (612) 338-6462
+
+Litho in U.S.A.
+C-001-782
+
+SOURCE AND TRANSCRIPTION NOTE
+
+Source scan: Computer History Museum, "Tymshare Tymnet Pamphlet 1982" (12-page PDF).
+Source URL: https://archive.computerhistory.org/resources/text/Tymshare/tymshare_tymnet_pamphlet.1982.102638883.pdf
+
+The scan's embedded OCR layer is substantially corrupted. This transcription was re-OCRed and manually proofread against the rendered page images.

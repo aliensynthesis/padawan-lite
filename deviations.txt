@@ -1271,3 +1271,267 @@ bridge/main.c - Sprint-era Telenet TERMINAL= code recognition.
   test_x28_signals, test_x3 suites all continue to pass. A
   dedicated test for the signature-detection path would be a
   worthwhile follow-on.
+
+[2026-08-05] src/tymsat.c, include/tymsat.h - TYMNET support added as a
+  stand-alone TYMSAT, NOT as a PAD personality
+  SUPERSEDES the [2026-05-29] entry "Tymnet personality REMOVED in
+  v1.4.0". That entry set a two-part revisit bar: (a) authoritative
+  Tymnet documentation surfacing, AND (b) the behaviour turning out to
+  be more X.28-shaped than the record suggested.
+
+  Condition (a) is now met. Two primary sources were added to kb/:
+
+    [HTU82]  "How to Use TYMNET -- A Reference Guide for Terminal
+             Users", July 1982. Computer History Museum scan, re-OCRed
+             and proofread against the page images. Authority for the
+             wire: prompt text, terminal-identifier table, control
+             characters, message catalogue.
+    [NPCF85] "Network Products Concepts and Facilities", Jan 15 1985
+             (Pub. 57) + the Jul 31 1985 update (NPD-57-1). TYMNET's
+             own internal product documentation. Authority for
+             architecture and the login model.
+
+  Condition (b) is REFUTED, decisively and in TYMNET's own words. The
+  1985 X.25/X.75 chapter (p. 6-4) states: "The TYMSAT is a nonpacket
+  mode, asynchronous DTE that originates calls. A TYMSAT provides many
+  of the features of a CCITT-defined PAD, as well as additional
+  features." The TYMSAT is therefore the DTE side -- the thing a PAD
+  talks TO. The CCITT PAD function in TYMNET lives in the X.25/X.75
+  interface product as TPAD/HPAD. libpadawancore's X.28 PAD is the
+  analogue of TYMNET's TPAD; the TYMSAT is its peer, not its subclass.
+
+  Two further confirmations:
+    - Tables 5-1 and 5-2 (pp. 5-6, 5-7) list the X.28 PAD as an ISIS
+      TYMSAT capability, absent from the stand-alone ("solo") TYMSAT.
+      The stand-alone TYMSAT is by definition the non-PAD path.
+    - p. 5-10: "Interactive access to the TYMSAT for changing options
+      is not possible while the program is running." There is no
+      runtime command surface at all -- no command mode, no recall
+      character, no X.3 SET/PAR. personality_t's command_aliases,
+      extended_param_ids and profile_overlay have nothing to bind to.
+
+  Resolution: the v1.4.0 removal was correct and is NOT reversed. No
+  Tymnet personality is re-added; personality_by_name("tymnet") still
+  returns NULL and the regression guard in tests/test_personality.c
+  stays. TYMNET support instead arrives as a separate front end in
+  src/tymsat.c, selected by --emulate tymnet ahead of the personality
+  lookup. The scope contraction the v1.4.0 entry described ("the
+  personality system is for PADs that fit the X.28/X.29 mould") is
+  preserved intact; this work adds a second mould rather than
+  stretching the first.
+
+  Scope: stand-alone (solo) TYMSAT per Table 5-1. PVC/MPVC ports,
+  printer ports and Telex Extension Cord are in scope. SIO ports,
+  addressable ports, LISA, Videotext, Baudot and the X.28 PAD are
+  ISIS-only and out of scope. NETVAL/MUD Supervisor-side validation is
+  not modelled -- NETVAL is an ISIS product and there is no Supervisor
+  counterpart here; user acceptance is driven entirely by tymnet.cfg,
+  which plays the Tymfile's generation-time role.
+
+[2026-08-05] src/tymsat.c - login string accepts the colon separator only
+  The login string grammar implemented is <username>[:<host>]<CR>.
+
+  [NPCF85 p. 14-6] is the only place either 1985 document names a
+  separator, and it names the colon twice: "Only users with passwords
+  can use the colon (:) to specify a destination host", and "not
+  required to specify a destination by entering a colon (:) and a host
+  number in the login string". The word "semicolon" appears nowhere in
+  either 1985 document.
+
+  [HTU82] does show semicolons -- "INFORMATION;" (line 7) and
+  "DPAC;;3020<host address>:<user data>" (line 88) -- but both are
+  gateway forms. The second is explicitly the Datapac X.25/X.75
+  interface, where the colon carries X.25 call user data rather than a
+  TYMNET host number. TYMNET's X.25 support is an ancillary product
+  outside the stand-alone TYMSAT, so the gateway login form is not
+  implemented.
+
+  Consequence: the two catalogue messages only that path can raise --
+  RE-ENTER ADDRESS AND DATA [HTU82:267] and TYPE "P" AHEAD OF ADDRESS
+  [HTU82:285] -- retain their text but are marked NOT EMITTED.
+
+  VERIFY: that the semicolon forms are gateway-only, rather than an
+  alternative native separator the 1985 documents simply omit, is
+  inference from context and is not stated by either source.
+
+[2026-08-05] src/tymsat.c - terminal identifier is recorded, not applied
+  [NPCF85 p. 5-8] states the TID selects "baud rate, character set,
+  carriage return delay, and echoing requirements", and [HTU82:127-137]
+  supplies the table of identifier characters with their speeds and
+  terminal classes.
+
+  The identifier is validated and stored; it does not currently
+  configure the session. Selecting 'E' rather than 'A' changes nothing
+  observable on the wire.
+
+  Reason: [HTU82] names the four characteristics but quantifies none of
+  them -- no pad-character counts, no delay in milliseconds, no
+  statement of which identifiers suppress echo. Making the TID bite
+  would mean inventing values the sources do not contain, which is the
+  same failure mode that produced the discarded v1.2 Tymnet
+  personality. Deliberate deferral pending a Tymfile or CONSAT listing.
+
+[2026-08-05] src/tymsat.c - Control-H is a session option, not a backspace
+  [HTU82:110] assigns ^H (0x08) to "Initiates half-duplex operation,
+  suppressing TYMSAT echoing of input characters", and the pamphlet
+  documents no editing keys whatsoever. During login accumulation we
+  therefore consume ^H as the half-duplex control character rather than
+  treating it as a destructive backspace, which is what a modern
+  terminal user would expect and what the X.28 PAD core does via X.3
+  parameter 16.
+
+  Consequence: a user cannot backspace over a typo in the username or
+  password; a mistyped entry must be completed and re-entered after the
+  resulting error message. This matches the documented control-character
+  assignment and is not believed to be a divergence from the real
+  TYMSAT, but the pamphlet's silence on editing means it is unconfirmed.
+
+  VERIFY: whether a real TYMSAT offered any character-delete facility.
+
+[2026-08-05] src/tymsat.c - XON/XOFF modes are tracked but not buffered
+  [HTU82:112-115] defines ^R (terminal controls inbound flow from the
+  host) and ^X (network controls terminal input), with ^S/^Q effective
+  only when the corresponding mode was requested at login.
+
+  Implemented: the modes are recorded from the login string, and in
+  ^R mode a ^S/^Q from the terminal is consumed as flow control rather
+  than forwarded to the host, so it cannot corrupt the data stream.
+  host_flow_held / terminal_flow_held track the resulting state.
+
+  NOT implemented: actual buffering. On receiving ^S we do not hold
+  host output in an internal queue; the TCP transport's own backpressure
+  stands in for the buffer space a real TYMSAT node provided. A host
+  that ignores TCP backpressure could therefore deliver output the user
+  asked to pause.
+
+  The pamphlet's DATA LOST TOWARD HOST [HTU82:213] and DATA LOST TOWARD
+  TERMINAL [HTU82:216] messages describe exactly the buffer-exhaustion
+  condition we do not model; both are marked NOT EMITTED.
+
+[2026-08-05] src/tymsat.c - service message framing and case are assumed
+  Neither source states the framing around service messages. We emit
+  CR LF before and after each message, matching what the X.28 PAD core
+  does, and emit prompts that expect same-line input (please log in:,
+  password:) with a leading CR LF and no trailing terminator --
+  [HTU82:256] "Type your password on the same line as the prompt."
+
+  Message case is configurable and defaults to lowercase. The sources
+  conflict: [HTU82:28-59] renders prompts lowercase in what reads as
+  verbatim terminal transcript, while [HTU82:196-289] (the MESSAGES
+  catalogue) and [NPCF85 p. 5-8] both render them uppercase. Both
+  uppercase renderings are referential -- naming a message in prose --
+  while the only transcript-style rendering is lowercase, which is
+  consistent with a lowercase wire plus a period documentation
+  convention of uppercasing message names. tymnet.cfg's "case upper"
+  switches the whole catalogue.
+
+  VERIFY: unresolved without a byte-level capture. Also unconfirmed:
+  whether a space follows the colon in the prompts (we emit none), and
+  the field widths in the -NNNN-PPP- node/port line, whose digit counts
+  in [HTU82:36] are the pamphlet's own placeholders rather than a
+  stated format (we emit unpadded).
+
+[2026-08-05] src/tymsat.c - unrecognised terminal identifiers are ignored
+  Neither source says what a real TYMSAT did when the identifier
+  character was not one of A,B,C,D,E,F,G,I,P. [HTU82:32] notes the
+  identifier request itself "may appear garbled" or "may not appear at
+  some terminals, at all" at mismatched speeds, and instructs the user
+  to "wait a few seconds and type your identifier" -- which implies
+  tolerance of line noise rather than an error response.
+
+  We therefore discard unrecognised characters silently and remain in
+  the awaiting-identifier state. The alternative (an error message)
+  would risk a feedback loop against a terminal whose speed does not
+  match the port.
+
+[2026-08-05] src/tymsat.c - empty-entry messages replace the prompt rather
+  than preceding it
+  Two catalogue entries fire when the user presses CR with nothing
+  typed:
+
+    USER NAME [HTU82:288] "A carriage return or line feed has been
+      entered instead of a user name. Type your user name on the same
+      line as the prompt."
+    PASSWORD  [HTU82:255] "A carriage return or line feed has been
+      entered instead of a password. Type your password on the same
+      line as the prompt."
+
+  Both end by telling the user to type "on the same line as the
+  prompt", which makes the message itself the re-prompt. We therefore
+  emit the message in prompt form -- leading CR LF, no trailing
+  terminator, so the next keystroke lands on the same line -- and do
+  NOT additionally re-issue the original prompt.
+
+  The alternative reading (emit the message as a line, THEN re-issue
+  the prompt) is equally grammatical, but produces two prompts on
+  screen for one mistake, and in the password case prints the
+  identical string "password:" twice, since the catalogue entry and
+  the prompt are the same text.
+
+  Note this applies only to EMPTY entries. An incorrect entry takes the
+  other path: ERROR, TYPE USER NAME [HTU82:222] and ERROR, TYPE
+  PASSWORD [HTU82:225] are not themselves prompts, so they are emitted
+  as messages and the prompt follows.
+
+  VERIFY: the pamphlet describes both messages and their instructions
+  but never shows the resulting screen. Unresolved without a capture.
+
+[2026-08-06] src/tymsat.c - connect acknowledgement defaults to
+  "call connected", a client-attested form absent from the documentation
+  On successful login the TYMSAT emits "call connected" by default.
+  This string appears in NEITHER primary source. It is the observed
+  behaviour of a 1986 TYMNET client, supplied by the project owner.
+
+  What the sources actually say. Only [HTU82] addresses the
+  acknowledgement at all; both 1985 manuals are silent. The 1985 login
+  model (p. 5-8) enumerates the five elements of login INFORMATION the
+  user supplies and stops -- it never describes a response. The nearest
+  thing, the "needle acknowledgement" of p. 4-14, is a message from the
+  destination node back to the Supervisor confirming the circuit is
+  complete; it is internal network traffic and never reaches the
+  terminal.
+
+  [HTU82] gives two forms, in three places:
+    - [HTU82:49-53]   login step 5: "TYMNET will display an acceptance
+                      message, such as a semicolon (;) or 'host is
+                      online,' to indicate that you are connected to
+                      the host computer", followed by both rendered.
+    - [HTU82:94-98]   the same sentence for the Datapac gateway path.
+    - [HTU82:231-232] catalogue: "HOST IS ONLINE -- You are connected
+                      to the host computer and may proceed with your
+                      session."
+
+  Why a third form is not a contradiction. The pamphlet's wording is
+  "an acceptance message, SUCH AS a semicolon (;) or 'host is online'".
+  It presents examples, does not claim the list is exhaustive, and
+  never states what selected between them. A form attested by a real
+  client fills a gap the documentation left open.
+
+  The pamphlet's own two are moreover not equally attested. "host is
+  online" has a catalogue entry; the semicolon has none -- there is no
+  ';' entry anywhere in [HTU82:196-289], nor any other semicolon in
+  that section. The semicolon appears only in the procedural
+  walkthroughs. That asymmetry is consistent with the semicolon having
+  been a HOST prompt (Tymshare hosts prompted with ';') that the
+  pamphlet folded into the same step because it is what the user sees
+  next, rather than a network-generated message.
+
+  Resolution: all three forms are selectable via tymnet.cfg's
+  "accept call-connected|terse|verbose". "call connected" is the
+  default (TYMSAT_ACCEPT_CALL_CONNECTED == 0, so a zero-initialised
+  config lands on it). This follows the project's established
+  precedence of client-observed behaviour over reconstruction -- the
+  same basis as the PlayNET dialer's " 518 52E CONNECTED" address
+  grouping and the telenet-91 '@' recall character.
+
+  TYMSAT_MSG_CALL_CONNECTED is appended to the message enum AFTER the
+  pamphlet-ordered block, alongside the terminal-identifier prompt, so
+  the [HTU82:196-289] catalogue ordering stays intact and the
+  non-catalogue entries are visibly segregated.
+
+  VERIFY: the specific 1986 client has not been recorded here. The
+  other client-derived behaviours in this codebase name their source
+  (QuantumLink dsc.prg/0006.prg, the PlayNET dialer at $1301, the 1991
+  USA TODAY Sports Center client); this entry should be amended with
+  the client's identity and, if available, the capture, so a later
+  reader can weigh it the same way.

@@ -13,6 +13,9 @@ nuis.txt
 /tests/test_user_telnet
 /tests/test_x29_messages
 /tests/test_x3
+/tests/test_telos
+/tests/test_term_id
+/tests/test_tymsat
 
 # AI collaboration helpers (Python; not part of the shipped product)
 /tools/

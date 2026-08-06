@@ -38,7 +38,14 @@ LDFLAGS  =
 # path out of the base CFLAGS for cleaner separation.
 TEST_CFLAGS = $(CFLAGS) -Iplatform/linux
 
-LIB_SRC      = src/x3.c src/x28_signals.c src/x29_messages.c src/personality.c src/pad.c
+# src/tymsat.c is the stand-alone TYMSAT front end: a PEER of the X.28
+# PAD, not a layer on it. TYMNET's own documentation places the TYMSAT
+# on the DTE side of a PAD ("a nonpacket mode, asynchronous DTE that
+# originates calls" - Network Products Concepts and Facilities, p. 6-4),
+# so it shares only types.h and the include/x25.h call seam with pad.c.
+# See include/tymsat.h for the full rationale.
+LIB_SRC      = src/x3.c src/x28_signals.c src/x29_messages.c src/personality.c \
+               src/pad.c src/tymsat.c
 LIB_OBJ      = $(LIB_SRC:.c=.o)
 
 # Platform stub - used only by the test binaries. The padawan-lite binary
@@ -61,7 +68,8 @@ BRIDGE_DIR        = bridge
 BRIDGE_LIB_SRC    = $(BRIDGE_DIR)/x25_telnet_bridge.c \
                     $(BRIDGE_DIR)/user_telnet.c \
                     $(BRIDGE_DIR)/pcp.c \
-                    $(BRIDGE_DIR)/term_id.c
+                    $(BRIDGE_DIR)/term_id.c \
+                    $(BRIDGE_DIR)/bridge_session.c
 BRIDGE_LIB_OBJ    = $(BRIDGE_LIB_SRC:.c=.o)
 BRIDGE_MAIN_SRC   = $(BRIDGE_DIR)/main.c
 BRIDGE_CFLAGS     = $(CFLAGS) -I$(BRIDGE_DIR) -I$(TELOS_DIR)

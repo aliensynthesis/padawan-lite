@@ -33,7 +33,9 @@
      - x25_send / x25_recv
    x25_recv is a stub; data flows the other way - the driver calls
    x25_bridge_poll_events on socket readability and we push bytes via
-   pad_input_remote into the session bound to the call.
+   bridge_session_input_remote into the front-end session bound to the
+   call. The bridge is front-end agnostic: whether that session is an
+   X.28 PAD or a stand-alone TYMSAT is bridge_session.c's concern.
 
    Address interpretation: an X.25 address is looked up in an optional
    address->host:port map loaded via x25_bridge_load_map(). Unmapped
@@ -82,7 +84,10 @@ typedef struct {
     int            in_use;
     int            fd;
     int            connecting;
-    pad_session_t *session;
+    /* The front end bound to this call. Tagged rather than a bare
+       pad_session_t* so a TYMSAT session can own a call too; see
+       bridge/bridge_session.h. */
+    bridge_session_t session;
 
     /* Generation counter, incremented on alloc. Encoded into the upper
        24 bits of x25_call_t.call_id so a stale handle pointing at a
@@ -116,7 +121,7 @@ static bridge_call_t  g_calls[BRIDGE_MAX_CALLS];
 /* Session bound to the NEXT x25_call. Multi-session callers would set
    this immediately before each x25_call to associate the new call with
    the right session. The single-session driver sets it once at startup. */
-static pad_session_t *g_default_session = NULL;
+static bridge_session_t g_default_session;
 
 /* Default window size used when allocating a new slot. Updated by
    x25_bridge_set_window_size. */
@@ -149,6 +154,25 @@ typedef struct {
 static bridge_map_entry_t g_map[BRIDGE_MAP_MAX];
 static int                g_map_count = 0;
 
+void x25_bridge_clear_map(void)
+{
+    g_map_count = 0;
+}
+
+int x25_bridge_add_map_entry(const char *address, const char *host, int port)
+{
+    if (address == NULL || host == NULL) return -1;
+    if (g_map_count >= BRIDGE_MAP_MAX) return -1;
+    if (port < 1 || port > 65535) return -1;
+    if (strlen(address) >= BRIDGE_ADDR_MAX) return -1;
+    if (strlen(host) >= BRIDGE_HOST_MAX) return -1;
+    strcpy(g_map[g_map_count].address, address);
+    strcpy(g_map[g_map_count].host, host);
+    g_map[g_map_count].port = (unsigned short)port;
+    g_map_count++;
+    return 0;
+}
+
 int x25_bridge_load_map(const char *filename)
 {
     FILE *f;
@@ -158,7 +182,7 @@ int x25_bridge_load_map(const char *filename)
     f = fopen(filename, "r");
     if (f == NULL) return -1;
 
-    g_map_count = 0;
+    x25_bridge_clear_map();
     while (fgets(line, sizeof(line), f) != NULL &&
            g_map_count < BRIDGE_MAP_MAX) {
         char addr[BRIDGE_ADDR_MAX];
@@ -170,11 +194,7 @@ int x25_bridge_load_map(const char *filename)
         if (sscanf(line, "%15s %63s %d", addr, host, &port) != 3) {
             continue;
         }
-        if (port < 1 || port > 65535) continue;
-        strcpy(g_map[g_map_count].address, addr);
-        strcpy(g_map[g_map_count].host, host);
-        g_map[g_map_count].port = (unsigned short)port;
-        g_map_count++;
+        (void)x25_bridge_add_map_entry(addr, host, port);
     }
     fclose(f);
     return 0;
@@ -296,7 +316,7 @@ static void slot_close(bridge_call_t *s)
     s->in_use     = 0;
     /* Telos state is left as-is; the next alloc_slot will memset and
        telos_init the slot afresh. */
-    s->session    = NULL;
+    s->session    = bridge_session_none();
 }
 
 /* --- Telnet IAC handling ---------------------------------------------- */
@@ -337,12 +357,13 @@ static void send_terminal_type(bridge_call_t *s);
 static const term_id_entry_t *effective_term_id(const bridge_call_t *s)
 {
     const term_id_entry_t *e;
-    if (s != NULL && s->session != NULL &&
-        s->session->terminal_type[0] != '\0') {
-        e = term_id_lookup(
-                term_id_resolve_telenet_code(
-                    s->session->terminal_type, g_telenet_d1));
-        if (e != NULL) return e;
+    if (s != NULL) {
+        const char *ttype = bridge_session_terminal_type(&s->session);
+        if (ttype != NULL) {
+            e = term_id_lookup(
+                    term_id_resolve_telenet_code(ttype, g_telenet_d1));
+            if (e != NULL) return e;
+        }
     }
     if (g_ttype_claim_default[0] != '\0') {
         e = term_id_lookup(
@@ -436,10 +457,10 @@ static void bridge_event_cb(void *ctx, const telos_event_t *ev)
         if (resp_len > 0 && s->fd >= 0) {
             (void)!write(s->fd, resp, resp_len);
         }
-        if (filtered_len > 0 && s->session != NULL) {
+        if (filtered_len > 0 && bridge_session_valid(&s->session)) {
             /* User-data flow from the Telnet peer is always qbit=0;
                true X.29 needs a real X.25 transport. */
-            pad_input_remote(s->session, data, filtered_len, 0);
+            bridge_session_input_remote(&s->session, data, filtered_len);
         }
         break;
     }
@@ -533,9 +554,9 @@ static void send_initial_negotiation(bridge_call_t *s)
 
 /* --- bridge-specific API ---------------------------------------------- */
 
-void x25_bridge_bind(pad_session_t *p)
+void x25_bridge_bind(const bridge_session_t *p)
 {
-    g_default_session = p;
+    g_default_session = (p != NULL) ? *p : bridge_session_none();
 }
 
 int x25_bridge_get_fd(void)
@@ -692,7 +713,11 @@ int x25_send(x25_call_t *call, const uint8 *data, uint32 len, uint8 qbit)
        connection is bound to this call's session, route the X.29
        bytes through PCP as a text event instead. */
     if (qbit) {
-        if (pcp_emit_x29_event(s->session, data, len) == 0) {
+        /* PCP is an X.29 event channel; a TYMSAT session has no X.29
+           layer, so bridge_session_as_pad yields NULL and the qualified
+           data is refused as it would be with PCP disabled. */
+        if (pcp_emit_x29_event(bridge_session_as_pad(&s->session),
+                               data, len) == 0) {
             return X25_OK;
         }
         return X25_ERR_NOT_SUPPORTED;
@@ -732,7 +757,7 @@ int x25_recv(x25_call_t *call, uint8 *buf, uint32 buf_size,
 
 static void poll_one(bridge_call_t *s, short revents)
 {
-    if (s->fd < 0 || s->session == NULL) return;
+    if (s->fd < 0 || !bridge_session_valid(&s->session)) return;
 
     if (s->connecting) {
         int err = 0;
@@ -743,31 +768,29 @@ static void poll_one(bridge_call_t *s, short revents)
         s->connecting = 0;
         if (err == 0) {
             send_initial_negotiation(s);
-            pad_call_connected(s->session);
+            bridge_session_call_connected(&s->session);
         } else {
-            /* Map common TCP connect errors to X.25 cause codes per
-               Recommendation X.25 §5.6.6: 1 = number busy,
-               9 = out of order, 13 = not obtainable, 5 = network
-               congestion. The diagnostic carries the raw errno so a
-               diagnostic byte traces back to the actual POSIX error. */
-            pad_clear_cause_t cause = PAD_CLR_NETWORK_PROBLEM;
-            uint8             code  = 5;     /* default: network congestion */
-            pad_session_t    *sess  = s->session;
-            uint8             diag  = (uint8)(err & 0xFF);
+            /* Classify the connect failure in transport terms; the
+               translation into X.25 cause codes (X.25 §5.6.6) or
+               TYMNET messages happens in bridge_session.c so the two
+               front ends stay in step. The diagnostic carries the raw
+               errno so it traces back to the actual POSIX error. */
+            bridge_clear_cause_t cause = BRIDGE_CLEAR_NETWORK_ERROR;
+            bridge_session_t     sess  = s->session;
+            uint8                diag  = (uint8)(err & 0xFF);
             switch (err) {
             case ECONNREFUSED:
-                cause = PAD_CLR_NUMBER_NOT_ASSIGNED; code = 13; break;
+                cause = BRIDGE_CLEAR_REFUSED;     break;
             case EHOSTUNREACH:
             case ENETUNREACH:
-                cause = PAD_CLR_NUMBER_OUT_OF_ORDER; code = 9;  break;
-            case ETIMEDOUT:
-                cause = PAD_CLR_NETWORK_PROBLEM;     code = 5;  break;
             case EHOSTDOWN:
-                cause = PAD_CLR_NUMBER_OUT_OF_ORDER; code = 9;  break;
-            default:                                              break;
+                cause = BRIDGE_CLEAR_UNREACHABLE; break;
+            case ETIMEDOUT:
+                cause = BRIDGE_CLEAR_TIMEOUT;     break;
+            default:                              break;
             }
             slot_close(s);
-            pad_remote_cleared(sess, cause, code, diag);
+            bridge_session_cleared(&sess, cause, diag);
         }
         return;
     }
@@ -784,25 +807,25 @@ static void poll_one(bridge_call_t *s, short revents)
                on local NAWS (we push our dimensions back). */
             telos_recv(&s->telos, raw, (uint32)n);
         } else if (n == 0) {
-            /* Clean FIN from remote: code 0 = DTE originated. */
-            pad_session_t *sess = s->session;
+            /* Clean FIN from remote. */
+            bridge_session_t sess = s->session;
             slot_close(s);
-            pad_remote_cleared(sess, PAD_CLR_REMOTE_REQUEST, 0, 0);
+            bridge_session_cleared(&sess, BRIDGE_CLEAR_REMOTE_CLOSED, 0);
         } else if (errno != EAGAIN && errno != EINTR) {
             /* Mid-call socket error -- ECONNRESET is a remote abort, treat
                like a network problem with diagnostic = errno. */
-            pad_session_t *sess = s->session;
+            bridge_session_t sess = s->session;
             uint8 diag = (uint8)(errno & 0xFF);
             slot_close(s);
-            pad_remote_cleared(sess, PAD_CLR_NETWORK_PROBLEM, 5, diag);
+            bridge_session_cleared(&sess, BRIDGE_CLEAR_NETWORK_ERROR, diag);
         }
         return;
     }
 
     if (revents & (POLLHUP | POLLERR)) {
-        pad_session_t *sess = s->session;
+        bridge_session_t sess = s->session;
         slot_close(s);
-        pad_remote_cleared(sess, PAD_CLR_REMOTE_REQUEST, 0, 0);
+        bridge_session_cleared(&sess, BRIDGE_CLEAR_REMOTE_CLOSED, 0);
     }
 }
 
@@ -813,12 +836,13 @@ void x25_bridge_poll_events(short revents)
     poll_one(&g_calls[i], revents);
 }
 
-int x25_bridge_fd_for_session(const pad_session_t *p)
+int x25_bridge_fd_for_session(const bridge_session_t *p)
 {
     int i;
-    if (p == NULL) return -1;
+    if (!bridge_session_valid(p)) return -1;
     for (i = 0; i < BRIDGE_MAX_CALLS; i++) {
-        if (g_calls[i].in_use && g_calls[i].session == p &&
+        if (g_calls[i].in_use &&
+            bridge_session_same(&g_calls[i].session, p) &&
             g_calls[i].fd >= 0) {
             return g_calls[i].fd;
         }
@@ -826,13 +850,14 @@ int x25_bridge_fd_for_session(const pad_session_t *p)
     return -1;
 }
 
-void x25_bridge_set_window_size_for_session(const pad_session_t *p,
+void x25_bridge_set_window_size_for_session(const bridge_session_t *p,
                                             uint16 width, uint16 height)
 {
     int i;
-    if (p == NULL) return;
+    if (!bridge_session_valid(p)) return;
     for (i = 0; i < BRIDGE_MAX_CALLS; i++) {
-        if (g_calls[i].in_use && g_calls[i].session == p) {
+        if (g_calls[i].in_use &&
+            bridge_session_same(&g_calls[i].session, p)) {
             g_calls[i].naws_width  = width;
             g_calls[i].naws_height = height;
             if (g_calls[i].naws_active &&
@@ -874,23 +899,27 @@ pad_session_t *x25_bridge_session_at_local(const char *ip_str, int port)
         if (inet_ntop(AF_INET, &local.sin_addr, buf, sizeof(buf)) == NULL) {
             continue;
         }
-        if (strcmp(buf, ip_str) == 0) return s->session;
+        if (strcmp(buf, ip_str) == 0) {
+            return bridge_session_as_pad(&s->session);
+        }
     }
     return NULL;
 }
 
-int x25_bridge_peer_ip_for_session(const pad_session_t *p,
+int x25_bridge_peer_ip_for_session(const bridge_session_t *p,
                                    char *ip_out, uint32 ip_out_sz)
 {
     int i;
-    if (p == NULL || ip_out == NULL || ip_out_sz < INET_ADDRSTRLEN) {
+    if (!bridge_session_valid(p) || ip_out == NULL ||
+        ip_out_sz < INET_ADDRSTRLEN) {
         return -1;
     }
     for (i = 0; i < BRIDGE_MAX_CALLS; i++) {
         struct sockaddr_in peer;
         socklen_t          slen = sizeof(peer);
         bridge_call_t     *s = &g_calls[i];
-        if (!s->in_use || s->fd < 0 || s->session != p) continue;
+        if (!s->in_use || s->fd < 0 ||
+            !bridge_session_same(&s->session, p)) continue;
         if (getpeername(s->fd, (struct sockaddr *)&peer, &slen) != 0) {
             return -1;
         }

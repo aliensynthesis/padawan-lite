@@ -60,6 +60,21 @@ packet-switched era.
   `HALF`/`FULL`). Telenet data is partly user-doc-sourced and
   partly best-effort reconstruction; see `src/personality.c` and
   `deviations.txt` for VERIFY caveats.
+- **TYMNET emulation** via `--emulate tymnet`. TYMNET is not an
+  X.25 network and its terminal interface, the TYMSAT, is not a PAD —
+  TYMNET's own manuals describe it as "a nonpacket mode, asynchronous
+  DTE that originates calls", i.e. the thing a PAD talks *to*. So this
+  is a separate front end (`include/tymsat.h`, `src/tymsat.c`) rather
+  than a personality, reproducing the stand-alone TYMSAT's user-facing
+  surface: the single-character terminal identifier, the `-NNNN-PPP-`
+  node/port line, `please log in:` with `username[:host]`, the
+  unechoed password prompt, `;` / `host is online` acceptance, the
+  service message catalogue, logoff back to the login prompt without
+  dropping carrier, and the two-minute login limit. Configured through
+  `tymnet.cfg`. Built from two primary sources in `kb/` — the July 1982
+  terminal-user guide and the 1985 Network Products manuals — with
+  every unsourced choice marked `VERIFY` and logged in
+  `deviations.txt`.
   See [`QUICKREF_TELENET.md`](QUICKREF_TELENET.md) for the full
   Telenet reference card (handshake, command aliases, signal text,
   X.3 overlay, sourcing pyramid, and known deviations all in one
@@ -147,7 +162,7 @@ followed by `30001<CR>` (session-level NUI).
 | `--trace-prefix PREFIX`       | Override `--trace` filename prefix (implies `--trace`)            |
 | `--trace-line-mode`           | Consolidate CLIENT entries by CR (implies `--trace`)              |
 | `--pcp-port PORT`             | PAD Control Protocol listener on `127.0.0.1:PORT` (`0` = off)     |
-| `--emulate NAME`              | PAD personality: `default` (X.28), `telenet`, `telenet-91`         |
+| `--emulate NAME`              | PAD personality: `default` (X.28), `telenet`, `telenet-91`; or `tymnet` for the stand-alone TYMSAT front end |
 | `--ttype-claim NAME`          | Default terminal-type claim to hosts (`vt52`/`vt100`/`vt102`/`vt220`/`xterm`/`dumb`/`unknown`/`ansi`; default `vt100`) |
 | `--d1 NAME`                   | term_id the Sprint-era Telenet code `D1` resolves to (same name set as `--ttype-claim`; default `vt100`) |
 | `-h`, `--help`                | Show usage                                                        |
@@ -159,8 +174,8 @@ data) and configuration file formats.
 
 ## Configuration files
 
-**Address map** (passed via `-c`): one entry per line, whitespace-
-separated.
+**Address map** — `telenet.cfg` by convention, passed via `-c`: one
+entry per line, whitespace-separated.
 
 ```
 # <address> <host> <port>
@@ -171,6 +186,27 @@ separated.
 Unmapped addresses fall back to `localhost:<address-as-port>`, so
 `./padawan-lite` works without a map file as long as your destinations
 listen on ports matching the addresses you call.
+
+**TYMSAT configuration** — `tymnet.cfg`, passed via `-c` when
+`--emulate tymnet` is in effect. A different and non-interchangeable
+format, playing the role a Tymfile plays in a real installation: fixed
+at load time, with nothing a logged-in user can change.
+
+```
+node 4242                        # access-node number, shown as -NNNN-PPP-
+port 56                          # port number on that node
+# slot 3                         # enables the three-number WATS form
+case lower                       # message case on the wire (lower|upper)
+accept call-connected            # "call connected" | ";" (terse) | "host is online" (verbose)
+
+host 3020 127.0.0.1 64001        # host number -> TCP endpoint
+user DAVID secret 3020           # name, password, home destination
+user INFORMATION - 3020 ignore-host   # "-" password = No Password option
+```
+
+A TYMNET destination is a *host number*, not an X.25 address — TYMNET
+is a proprietary non-X.25 network. Host entries feed the same bridge
+address map the Telenet side uses, so resolution works identically.
 
 **Auth file** (passed via `--auth`): one NUI per line.
 
@@ -203,19 +239,23 @@ presentation difference is obvious at a glance.
 ## Project layout
 
 ```
-include/                   public headers (pad.h, x3.h, x28_signals.h, x25.h, types.h)
+include/                   public headers (pad.h, tymsat.h, x3.h, x28_signals.h, x25.h, types.h)
 src/                       platform-independent implementation
 platform/<name>/           per-platform shims (linux today; structure ready for others)
 bridge/                    Telnet/TCP X.25 bridge + interactive driver (produces ./padawan-lite)
 tests/                     one test_<topic>.c per module, no external framework
-kb/                        authoritative ITU-T spec PDFs (X.1, X.2, X.3, X.8, X.25, X.28, X.29)
+kb/                        authoritative specs: ITU-T PDFs (X.1, X.2, X.3, X.8, X.25, X.28, X.29)
+                           plus TYMNET primary sources (1982 user guide, 1985 product manuals)
 deviations.txt             every known deviation / out-of-scope item
 QUICKREF.md                user-facing command and parameter cheat sheet
 ```
 
-The Telnet bridge is decoupled from the PAD core through
+The Telnet bridge is decoupled from both front ends through
 `include/x25.h`; the bridge directory is extraction-ready for a
 separate X.25↔Telnet gateway project planned alongside Padawan-Lite.
+Sessions reach the bridge as `bridge_session_t`, a tagged handle over
+the X.28 PAD and the stand-alone TYMSAT, so the transport stays
+front-end agnostic.
 
 ## Standards and conformance
 
