@@ -1599,9 +1599,23 @@ bridge/main.c - Sprint-era Telenet TERMINAL= code recognition.
   pending[] is cleared once at login acceptance rather than in
   begin_circuit, which would otherwise discard it.
 
-  Granularity is 50 ms, the main loop's tick period. --path-delay takes
-  milliseconds and rounds up, so a sub-tick request yields one tick
-  rather than silently disabling the delay.
+  Granularity is 50 ms, the main loop's tick period. Both --path-delay
+  and tymnet.cfg's path-delay take milliseconds and round up, so a
+  sub-tick request yields one tick rather than silently disabling the
+  delay.
+
+  Precedence is --path-delay, then tymnet.cfg's path-delay, then the
+  1000 ms built-in default: the command line outranks the config file
+  so an operator can override a provisioned installation without
+  editing its Tymfile equivalent. Note this makes path-delay unlike
+  every other tymnet.cfg directive, which have no command-line
+  equivalent and are fixed at generation time as a real Tymfile's
+  settings were. path-delay is an emulation knob rather than a
+  property of the emulated TYMSAT, which is why it is exposed both
+  ways. Whether the config file supplied the value is tracked with a
+  flag rather than inferred by comparing against the default, so a
+  config that sets exactly 1000 ms is still attributed to the file in
+  the startup line.
 
   Scope: TYMNET only. The X.28 PAD reaches x25_call from its SELECTION
   dispatch and could take the same treatment, but no delay is wired in

@@ -62,9 +62,14 @@ adheres to [Semantic Versioning](https://semver.org/).
   the lag being modelled sits behind the PAD rather than at the host,
   and no host output can be missed while it runs — there is no
   connection yet. Type-ahead during the pause is preserved and replayed.
-  `0` disables it. Applies to `--emulate tymnet` only; the PAD has the
-  same seam available but no delay is wired in yet, and passing the flag
-  without `--emulate tymnet` warns rather than silently doing nothing.
+  `0` disables it. Settable per-installation as `path-delay <ms>` in
+  `tymnet.cfg`; resolution is `--path-delay`, then the config file, then
+  the 1000 ms built-in default, so an operator can override a
+  provisioned installation without editing its Tymfile equivalent. The
+  startup line reports which of the three the effective value came
+  from. Applies to `--emulate tymnet` only; the PAD has the same seam
+  available but no delay is wired in yet, and passing the flag without
+  `--emulate tymnet` warns rather than silently doing nothing.
 
 - **`tymnet.cfg`,** the Tymfile analogue: node/port identity, message
   case, acceptance form, host-number routes, and the user table.

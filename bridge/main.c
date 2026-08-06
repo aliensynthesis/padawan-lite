@@ -178,9 +178,20 @@ static int             g_tymnet_mode = 0;
 
    TYMNET-only for now. The X.28 PAD has the same seam available (its
    SELECTION dispatch calls x25_call from one place) but no equivalent
-   delay is wired in yet. */
-static int             g_path_delay_ms = TYMSAT_DEFAULT_PATH_DELAY_MS;
-static int             g_path_delay_set = 0;   /* did the user pass it? */
+   delay is wired in yet.
+
+   Resolution order, highest first:
+     1. --path-delay on the command line
+     2. a "path-delay" line in tymnet.cfg
+     3. TYMSAT_DEFAULT_PATH_DELAY_MS
+   The command line wins so an operator can override a provisioned
+   installation without editing its Tymfile equivalent. */
+static int             g_path_delay_ms  = TYMSAT_DEFAULT_PATH_DELAY_MS;
+static int             g_path_delay_set = 0;   /* --path-delay given? */
+/* Set by load_tymnet_cfg when the file carries a path-delay line. A
+   flag rather than a value comparison, so a config that sets exactly
+   the default value is still attributed to the config. */
+static int             g_cfg_path_delay_set = 0;
 static tymsat_config_t g_tymsat_cfg;
 static tymsat_user_t   g_tymsat_users[MAX_TYMSAT_USERS];
 static uint16          g_tymsat_user_count = 0;
@@ -261,8 +272,10 @@ static int load_tymnet_cfg(const char *filename)
     g_tymsat_user_count = 0;
 
     /* Defaults, used for any directive the file omits. */
-    g_tymsat_cfg.node_number = 4242;
-    g_tymsat_cfg.port_number = 56;
+    g_tymsat_cfg.node_number      = 4242;
+    g_tymsat_cfg.port_number      = 56;
+    g_tymsat_cfg.path_delay_20ths = TYMSAT_DEFAULT_PATH_DELAY_20THS;
+    g_cfg_path_delay_set = 0;
 
     while (fgets(line, sizeof(line), f) != NULL) {
         char *p = line;
@@ -304,6 +317,16 @@ static int load_tymnet_cfg(const char *filename)
                        the client-attested default. */
                     g_tymsat_cfg.accept_msg = TYMSAT_ACCEPT_CALL_CONNECTED;
                 }
+            }
+        } else if (strcmp(kw, "path-delay") == 0) {
+            int v;
+            if (sscanf(p, "%31s %d", kw, &v) == 2 &&
+                v >= 0 && v <= 60000) {
+                /* Milliseconds -> twentieths, rounding up so a
+                   sub-tick request yields one tick rather than
+                   silently disabling the delay. */
+                g_tymsat_cfg.path_delay_20ths = (uint16)((v + 49) / 50);
+                g_cfg_path_delay_set = 1;
             }
         } else if (strcmp(kw, "host") == 0) {
             char num[16];
@@ -1327,28 +1350,37 @@ int main(int argc, char **argv)
        numbers land in the same bridge address map, so x25_call resolves
        them the same way either side. */
     if (g_tymnet_mode) {
+        const char *delay_src;
+
         memset(&g_tymsat_cfg, 0, sizeof(g_tymsat_cfg));
-        g_tymsat_cfg.node_number = 4242;
-        g_tymsat_cfg.port_number = 56;
-        g_tymsat_cfg.users       = g_tymsat_users;
-        g_tymsat_cfg.user_count  = 0;
+        g_tymsat_cfg.node_number      = 4242;
+        g_tymsat_cfg.port_number      = 56;
+        g_tymsat_cfg.path_delay_20ths = TYMSAT_DEFAULT_PATH_DELAY_20THS;
+        g_tymsat_cfg.users            = g_tymsat_users;
+        g_tymsat_cfg.user_count       = 0;
+        delay_src = "default";
         if (map_file != NULL) {
             if (load_tymnet_cfg(map_file) != 0) {
                 fprintf(stderr, "warning: failed to load TYMSAT config "
                                 "%s: %s\n", map_file, strerror(errno));
+            } else if (g_cfg_path_delay_set) {
+                delay_src = "tymnet.cfg";
             }
         }
-        /* Milliseconds -> twentieths, rounding up so a sub-tick
-           request still yields one tick rather than silently
-           disabling the delay. The main loop ticks at 20 Hz, so 50 ms
-           is the finest granularity available. */
-        g_tymsat_cfg.path_delay_20ths =
-            (uint16)((g_path_delay_ms + 49) / 50);
-        if (g_path_delay_ms > 0) {
+        /* The command line outranks the config file, which outranks
+           the built-in default. Only stamp the CLI value in when it
+           was actually given, so a config-file setting survives. */
+        if (g_path_delay_set) {
+            g_tymsat_cfg.path_delay_20ths =
+                (uint16)((g_path_delay_ms + 49) / 50);
+            delay_src = "--path-delay";
+        }
+        if (g_tymsat_cfg.path_delay_20ths > 0) {
             fprintf(stderr,
-                    "TYMSAT network-path delay: %d ms (%u ticks)\n",
-                    g_path_delay_ms,
-                    (unsigned)g_tymsat_cfg.path_delay_20ths);
+                    "TYMSAT network-path delay: %u ms (%u ticks, from %s)\n",
+                    (unsigned)(g_tymsat_cfg.path_delay_20ths * 50),
+                    (unsigned)g_tymsat_cfg.path_delay_20ths,
+                    delay_src);
         }
         if (g_tymsat_cfg.user_count == 0) {
             fprintf(stderr,
