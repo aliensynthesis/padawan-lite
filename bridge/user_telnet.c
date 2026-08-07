@@ -95,7 +95,8 @@ static void event_cb(void *ctx, const telos_event_t *ev)
         if (t->filter_out_buf == NULL) break;
         for (i = 0; i < len; i++) {
             uint8 b = src[i];
-            if (t->last_was_cr && (b == 0x0A || b == 0x00)) {
+            if (t->normalise_crlf &&
+                t->last_was_cr && (b == 0x0A || b == 0x00)) {
                 /* Drop the trailing LF/NUL of a CR LF / CR NUL pair.
                    The PAD sees only the bare CR. */
                 t->last_was_cr = 0;
@@ -140,14 +141,25 @@ static void write_cb(void *ctx, const uint8 *bytes, uint32 len)
 
 /* --- public API ------------------------------------------------------ */
 
+void user_telnet_set_crlf_normalisation(user_telnet_t *t, int on)
+{
+    if (t == NULL) return;
+    t->normalise_crlf = on ? 1 : 0;
+    if (!t->normalise_crlf) t->last_was_cr = 0;
+}
+
 void user_telnet_init(user_telnet_t *t, int fd)
 {
     memset(t, 0, sizeof(*t));
     t->fd = fd;
+    /* On by default so the X.28 PAD keeps the behaviour it has always
+       had; front ends that pass bytes to a host turn it off via
+       user_telnet_set_crlf_normalisation. */
+    t->normalise_crlf = 1;
     /* Note: we do NOT pass TELOS_FLAG_NVT_LINE_ENDING here. Telos's
        BINARY-gated stripping is RFC-correct but wrong for our needs
        (see last_was_cr comment in user_telnet.h). We do the
-       stripping unconditionally in event_cb instead. */
+       stripping in event_cb instead, gated on normalise_crlf. */
     telos_init(&t->telos,
                TELOS_ROLE_SERVER,
                0,

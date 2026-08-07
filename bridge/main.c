@@ -1029,6 +1029,15 @@ static void accept_session(uint8 profile_id)
             destroy_session(u);
             return;
         }
+        /* The TYMSAT has no X.28 command parser and no bare-CR
+           delimiter to protect: it hands client bytes to the host, so
+           an LF the client sent is data the host is entitled to
+           receive. Leaving the PAD's CR LF -> CR rewriting in place
+           silently ate those LFs -- and because the straddle state
+           carries across reads, an LF arriving long after its CR (even
+           after a full host round-trip) was eaten too. IAC processing
+           is unaffected. */
+        user_telnet_set_crlf_normalisation(&u->telnet, 0);
         u->handle = bridge_session_from_tymsat(&u->tymsat);
         trace_open(u, 0);
         x25_bridge_bind(&u->handle);

@@ -1676,3 +1676,51 @@ bridge/main.c - Sprint-era Telenet TERMINAL= code recognition.
   up, and the stand-in host now observes EOF within the probe window;
   before the fix it observed nothing and could still write to the
   socket.
+
+[2026-08-06] bridge/user_telnet.c - CR LF normalisation is bypassed for
+  TYMSAT sessions
+  The user-side Telnet filter rewrites CR LF and CR NUL from the client
+  down to a bare CR before the front end sees them. That exists for the
+  X.28 PAD: its command parser uses bare CR as the sole delimiter
+  (X.28 §3.5.1) regardless of whether the transport negotiated BINARY,
+  which is why the pass is done in user_telnet's event callback rather
+  than delegated to Telos's RFC-856-gated NVT_LINE_ENDING flag.
+
+  Applied to a TYMSAT session it corrupts data. The TYMSAT has no
+  command parser and no bare-CR delimiter to protect: it hands client
+  bytes to the host, so an LF the client sent is data the host is
+  entitled to receive. Observed in the field (/tmp/tcpseru.log): a
+  client sent a line ending in CR, the host answered "*** Hello, 2026!
+  ***", the client then sent a lone LF the host was waiting on, and it
+  never arrived.
+
+  The straddle state made it worse. last_was_cr deliberately carries
+  across telos_recv calls so a CR in one read pairs with an LF in the
+  next, but it is not time-bounded and is not reset by intervening host
+  output. The CR that armed it and the LF it ate were separated by a
+  full host round-trip and several seconds.
+
+  Fix: user_telnet_t gains normalise_crlf, defaulting to 1 so the PAD
+  is unchanged, and accept_session clears it for TYMSAT sessions via
+  user_telnet_set_crlf_normalisation. IAC processing is unaffected --
+  only the line-ending pass is skipped, so a Telnet client's
+  negotiation still never reaches the host as data.
+
+  Reproduced and verified end to end with a control: with the previous
+  client byte a CR the host received "PC1;THE-BOONOG\\r" before the fix
+  and "PC1;THE-BOONOG\\r\\n" after, while an LF preceded by an ordinary
+  byte was delivered correctly in both cases -- isolating the straddle
+  as the cause. Scenario 9 in tests/test_user_telnet.c pins the flag's
+  behaviour in both positions, including the straddled case and that
+  IAC handling is untouched.
+
+  Note the client in that capture was not speaking Telnet at all -- the
+  log shows a modem emulator (ATE0F1Q0V1S0=0, CONNECT 1200) on a raw
+  TCP socket with no IAC negotiation -- yet was having NVT line-ending
+  rewriting applied to its data stream.
+
+  NOT changed: the PAD path. Its normalisation, including the unbounded
+  straddle window and the deliberate override of BINARY (see scenario 8
+  in tests/test_user_telnet.c), is left exactly as it was. Clients such
+  as QuantumLink depend on the current behaviour, and narrowing the
+  straddle window is a separate question from this fix.

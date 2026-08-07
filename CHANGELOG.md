@@ -6,6 +6,27 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ## [1.6.0] — 2026-08-06
 
+### Fixed
+
+- **Client LFs were being eaten in TYMNET mode.** The user-side Telnet
+  filter rewrites `CR LF` from the client down to a bare `CR` — correct
+  for the X.28 PAD, whose command parser uses bare CR as its sole
+  delimiter, but wrong for a TYMSAT session, which hands client bytes
+  to the host. An LF the client sent is data the host is entitled to
+  receive.
+
+  Worse, the straddle state that lets a `CR` in one read pair with an
+  `LF` in the next is not time-bounded and is not reset by intervening
+  host output, so an LF arriving seconds later — after a complete host
+  round-trip — was still swallowed. Observed in the field: a client
+  sent a line ending in CR, the host replied, and the lone LF it was
+  waiting on never arrived.
+
+  `user_telnet_t` gains `normalise_crlf`, defaulting to on so the PAD
+  path is untouched; TYMSAT sessions turn it off. IAC processing is
+  unaffected — only the line-ending pass is skipped, so a Telnet
+  client's negotiation still never reaches the host as data.
+
 ### Changed
 
 - **Version strings now read `1.6.0`.** The product had identified

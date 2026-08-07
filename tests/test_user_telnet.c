@@ -238,6 +238,55 @@ int main(void)
               "8:  CR LF still normalised to CR even after BINARY=YES");
     }
 
+    /* === Scenario 9: CR LF normalisation can be switched off ========
+       A TYMSAT session hands client bytes straight to the host, so an
+       LF the client sent is data the host is entitled to receive.
+       user_telnet_set_crlf_normalisation(t, 0) turns the rewriting off
+       without disturbing IAC processing. */
+    {
+        user_telnet_t t;
+        uint8  out[64];
+        uint32 dlen;
+        static const uint8 cr_lf[]   = { 'h', 'i', 0x0D, 0x0A };
+        static const uint8 part1[]   = { 'a', 0x0D };
+        static const uint8 part2[]   = { 0x0A, 'b' };
+        static const uint8 cr_nul[]  = { 0x0D, 0x00 };
+        static const uint8 iac_ayt[] = { 0xFF, 0xF6, 'z' };
+
+        user_telnet_init(&t, sv[0]);
+        user_telnet_set_crlf_normalisation(&t, 0);
+
+        dlen = user_telnet_filter(&t, cr_lf, sizeof(cr_lf), out);
+        CHECK(dlen == 4 && out[2] == 0x0D && out[3] == 0x0A,
+              "9a: CR LF passes through intact when normalisation is off");
+
+        /* The straddled case is the one seen in the field: a CR in one
+           read and the LF in a much later one, after a full host
+           round-trip. Both must survive. */
+        dlen = user_telnet_filter(&t, part1, sizeof(part1), out);
+        CHECK(dlen == 2 && out[1] == 0x0D,
+              "9b: CR in one read still emits CR");
+        dlen = user_telnet_filter(&t, part2, sizeof(part2), out);
+        CHECK(dlen == 2 && out[0] == 0x0A && out[1] == 'b',
+              "9c: LF in a later read survives (straddle not eaten)");
+
+        dlen = user_telnet_filter(&t, cr_nul, sizeof(cr_nul), out);
+        CHECK(dlen == 2 && out[0] == 0x0D && out[1] == 0x00,
+              "9d: CR NUL also passes through intact");
+
+        /* IAC handling is untouched: an AYT command is still consumed
+           as protocol, not delivered as data. */
+        dlen = user_telnet_filter(&t, iac_ayt, sizeof(iac_ayt), out);
+        CHECK(dlen == 1 && out[0] == 'z',
+              "9e: IAC processing unaffected by the flag");
+
+        /* Re-enabling restores the X.28 behaviour. */
+        user_telnet_set_crlf_normalisation(&t, 1);
+        dlen = user_telnet_filter(&t, cr_lf, sizeof(cr_lf), out);
+        CHECK(dlen == 3 && out[2] == 0x0D,
+              "9f: re-enabling restores CR LF -> CR");
+    }
+
     close(sv[0]);
     close(sv[1]);
 

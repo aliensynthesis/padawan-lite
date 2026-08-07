@@ -81,7 +81,24 @@ typedef struct {
        must carry across telos_recv() calls because a CR can land in
        one recv and its LF in the next. */
     int               last_was_cr;
+
+    /* Whether to perform that normalisation at all. Non-zero (the
+       default) preserves the X.28 behaviour described above.
+
+       Zero passes CR LF through untouched, which is what a TYMSAT
+       session needs: it has no command parser, no bare-CR delimiter
+       to protect, and it hands bytes straight to the host -- so an LF
+       the client sent is data the host is entitled to receive.
+       Rewriting it there corrupts the stream. IAC processing is
+       unaffected either way; only the line-ending pass is skipped. */
+    int               normalise_crlf;
 } user_telnet_t;
+
+/* Enable (on != 0, the default) or disable application-level CR LF /
+   CR NUL normalisation for this session. Call after user_telnet_init.
+   Disable it for front ends that pass bytes through to a host rather
+   than parsing them as X.28 commands. */
+void user_telnet_set_crlf_normalisation(user_telnet_t *t, int on);
 
 /* Reset state and remember the user socket fd. */
 void user_telnet_init(user_telnet_t *t, int fd);
